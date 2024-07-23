@@ -1,1 +1,8 @@
 node_modules
+env
+api.key
+bin
+obj
+.idea
+ai-working-dir
+Recipes
