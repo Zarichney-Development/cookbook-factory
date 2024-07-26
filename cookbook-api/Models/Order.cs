@@ -5,12 +5,13 @@ namespace Cookbook.Factory.Models;
 
 public class CookbookOrder
 {
-    public required CookbookContent CookbookContent { get; init; }
+    public required string Email { get; set; }
+    public required CookbookContent CookbookContent { get; init; }    
     public required CookbookDetails CookbookDetails { get; init; }
     public required UserDetails UserDetails { get; init; }
     public CookbookOrder() { }
 
-    public override string ToString()
+    public string ToMarkdown()
     {
         return $"{CookbookContent}{CookbookDetails}{UserDetails}";
     }
@@ -38,7 +39,6 @@ public class CookbookDetails
     public string? Theme { get; set; }
     public string? PrimaryPurpose { get; set; }
     public List<string>? DesiredCuisines { get; set; }
-    public string? SkillProgression { get; set; }
     public string? CulturalExploration { get; set; }
     public string? NutritionalGuidance { get; set; }
     public string? RecipeModification { get; set; }
@@ -68,7 +68,6 @@ public class UserDetails
     public string? HealthFocus { get; set; }
     public string? FamilyConsiderations { get; set; }
     public int ServingSize { get; set; }
-    public required string Email { get; set; }
 
     public UserDetails()
     {

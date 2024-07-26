@@ -1,37 +1,40 @@
 using Cookbook.Factory.Models;
 using Cookbook.Factory.Services;
 using Microsoft.AspNetCore.Mvc;
+using ILogger = Cookbook.Factory.Logging.ILogger;
 
 namespace Cookbook.Factory.Controllers;
 
 [ApiController]
 [Route("api")]
-public class ApiController : ControllerBase
+public class ApiController(ILogger logger, RecipeService recipeService) : ControllerBase
 {
-    private readonly ILogger<ApiController> _logger;
-    private readonly RecipeService _recipeService;
-
-    public ApiController(ILogger<ApiController> logger, RecipeService recipeService)
-    {
-        _logger = logger;
-        _recipeService = recipeService;
-    }
-
     [HttpPost("cookbook")]
     public async Task<IActionResult> CreateCookbook([FromBody] CookbookOrder order)
     {
         // reject if no email
-        if (string.IsNullOrWhiteSpace(order.UserDetails.Email))
+        if (string.IsNullOrWhiteSpace(order.Email))
         {
-            _logger.LogWarning("No email provided in order");
+            logger.LogWarning("No email provided in order");
             return BadRequest("Email is required");
         }
-        
-        var recipes = await _recipeService.GetRecipes("Pad Thai");
-        
-        var result = await _recipeService.CurateRecipe(recipes, order);
-        
-        return Ok(result);
+
+        try
+        {
+            var query = "buffalo ranch dip";
+            
+            var recipes = await recipeService.GetRecipes(query);
+
+            var result = await recipeService.SynthesizeRecipe(recipes, order, query);
+            
+            return Ok(result);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error occurred while processing order");
+            return StatusCode(500, ex);
+        }
+
     }
 
 
@@ -40,13 +43,13 @@ public class ApiController : ControllerBase
     {
         if (string.IsNullOrWhiteSpace(query))
         {
-            _logger.LogWarning("Empty query received");
+            logger.LogWarning("Empty query received");
             return BadRequest("Query parameter is required");
         }
 
         try
         {
-            var recipes = await _recipeService.GetRecipes(query);
+            var recipes = await recipeService.GetRecipes(query);
 
             if (recipes.Count == 0)
             {
@@ -57,8 +60,8 @@ public class ApiController : ControllerBase
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, $"Error occurred while processing query: {query}");
-            return StatusCode(500, "An error occurred while processing your request");
+            logger.LogError(ex, $"Error occurred while processing query: {query}");
+            return StatusCode(500, ex);
         }
     }
 }

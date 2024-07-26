@@ -1,36 +1,27 @@
 using System.Text.Json;
 using OpenAI;
 using OpenAI.Chat;
+using ILogger = Cookbook.Factory.Logging.ILogger;
 
 namespace Cookbook.Factory.Services;
 
 public interface IModelService
 {
-    Task<T> GetResponseAsync<T>(string systemPrompt, string userPrompt, string functionName, string functionDescription,
+    Task<T> GetToolResponse<T>(string systemPrompt, string userPrompt, string functionName, string functionDescription,
         string functionParameters);
 }
 
-public class ModelService : IModelService
+public class ModelService(OpenAIClient client, IConfiguration configuration, ILogger logger)
+    : IModelService
 {
-    private readonly OpenAIClient _client;
-    private readonly IConfiguration _configuration;
-    private readonly ILogger<ModelService> _logger;
     private const string DefaultModel = "gpt-4o-mini";
 
-    public ModelService(OpenAIClient client, IConfiguration configuration, ILogger<ModelService> logger)
-    {
-        _client = client;
-        _configuration = configuration;
-        _logger = logger;
-    }
-
-    public async Task<T> GetResponseAsync<T>(string systemPrompt, string userPrompt, string functionName,
+    public async Task<T> GetToolResponse<T>(string systemPrompt, string userPrompt, string functionName,
         string functionDescription, string functionParameters)
     {
-        _logger.LogInformation($"Getting response from model");
-        _logger.LogInformation($"System prompt: {systemPrompt}");
-        _logger.LogInformation($"User prompt: {userPrompt}");
-        
+        logger.LogDebug(
+            $"Getting response from model. System prompt: {systemPrompt}, User prompt: {userPrompt}, Function name: {functionName}, Function description: {functionDescription}, Function parameters: {functionParameters}");
+
         var messages = new List<ChatMessage>
         {
             new SystemChatMessage(systemPrompt),
@@ -48,38 +39,55 @@ public class ModelService : IModelService
             Tools = { functionTool }
         };
 
-        var model = _configuration["OpenAI:ModelName"] ?? DefaultModel;
-        var chatClient = _client.GetChatClient(model);
+        var model = configuration["OpenAI:ModelName"] ?? DefaultModel;
+        var chatClient = client.GetChatClient(model);
 
+        ChatCompletion chatCompletion;
         try
         {
-            ChatCompletion chatCompletion = await chatClient.CompleteChatAsync(messages, options);
-
-            if (chatCompletion.FinishReason == ChatFinishReason.ToolCalls)
-            {
-                foreach (var toolCall in chatCompletion.ToolCalls)
-                {
-                    if (toolCall.FunctionName == functionName)
-                    {
-                        var result = JsonSerializer.Deserialize<T>(toolCall.FunctionArguments, new JsonSerializerOptions
-                        {
-                            PropertyNameCaseInsensitive = true
-                        });
-                        
-                        if (result != null)
-                        {
-                            return result;
-                        }
-                    }
-                }
-            }
-
-            throw new Exception("Failed to get a valid response from the model.");
+            chatCompletion = await chatClient.CompleteChatAsync(messages, options);
         }
         catch (Exception e)
         {
-            _logger.LogError(e, "Error occurred while getting response from model");
+            logger.LogError(e, "Error occurred while getting response from model");
             throw;
         }
+
+        if (chatCompletion.FinishReason != ChatFinishReason.ToolCalls)
+        {
+            throw new Exception("Failed to get a valid response from the model.");
+        }
+
+        foreach (var toolCall in chatCompletion.ToolCalls)
+        {
+            if (toolCall.FunctionName != functionName)
+            {
+                logger.LogError("Expected function name {functionName} but got {toolCall.FunctionName}",
+                    functionName, toolCall.FunctionName);
+                continue;
+            }
+
+            try
+            {
+                var result = JsonSerializer.Deserialize<T>(toolCall.FunctionArguments,
+                    new JsonSerializerOptions
+                    {
+                        PropertyNameCaseInsensitive = true
+                    });
+
+                if (result != null)
+                {
+                    return result;
+                }
+            }
+            catch (Exception e)
+            {
+                logger.LogError(e,
+                    "Failed to deserialize tool call arguments to type {type}, attempted to deserialize {FunctionArguments}", typeof(T).Name, toolCall.FunctionArguments);
+                throw;
+            }
+        }
+
+        throw new Exception("Failed to get a valid response from the model.");
     }
 }
