@@ -1,6 +1,5 @@
-using Cookbook.Factory;
 using Cookbook.Factory.Services;
-using Cookbook.Factory.Logging;
+using Cookbook.Factory.Middleware;
 using OpenAI;
 using Microsoft.OpenApi.Models;
 using Serilog;
@@ -9,6 +8,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 Log.Logger = new LoggerConfiguration()
     .WriteTo.Console()
+    .Enrich.FromLogContext()
     .WriteTo.Seq("http://localhost:5341/")
     .CreateLogger();
 
@@ -32,6 +32,7 @@ builder.Services.AddAutoMapper(typeof(Program));
 
 builder.Services.AddScoped<RecipeService>();
 builder.Services.AddScoped<WebScraperService>();
+builder.Services.AddScoped<FileService>();
 builder.Services.AddScoped<IModelService, ModelService>();
 
 builder.Services.AddEndpointsApiExplorer();
@@ -71,8 +72,6 @@ var app = builder.Build();
 app.UseMiddleware<ErrorHandlingMiddleware>();
 
 app.UseMiddleware<RequestResponseLoggerMiddleware>();
-
-// app.UseSerilogRequestLogging();
 
 app.UseCors("AllowSpecificOrigin");
 

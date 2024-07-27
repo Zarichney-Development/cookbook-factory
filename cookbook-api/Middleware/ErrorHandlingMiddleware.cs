@@ -1,7 +1,7 @@
 using System.Net;
 using System.Text.Json;
 
-namespace Cookbook.Factory;
+namespace Cookbook.Factory.Middleware;
 
 public class ErrorHandlingMiddleware(RequestDelegate next)
 {

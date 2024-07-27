@@ -1,6 +1,8 @@
 using Microsoft.Extensions.Options;
+using Serilog;
+using ILogger = Serilog.ILogger;
 
-namespace Cookbook.Factory.Logging;
+namespace Cookbook.Factory.Middleware;
 
 public class RequestResponseLoggerOptions
 {
@@ -11,10 +13,9 @@ public class RequestResponseLoggerOptions
     public string LogDirectory { get; set; } = "Logs";
 }
 
-public class RequestResponseLoggerMiddleware(RequestDelegate next, Serilog.ILogger logger,
-    IOptions<RequestResponseLoggerOptions> options)
+public class RequestResponseLoggerMiddleware(RequestDelegate next, IOptions<RequestResponseLoggerOptions> options)
 {
-    private readonly Serilog.ILogger _logger = logger.ForContext<RequestResponseLoggerMiddleware>();
+    private readonly ILogger _logger = Log.ForContext<RequestResponseLoggerMiddleware>();
     private readonly RequestResponseLoggerOptions _options = options.Value;
 
     public async Task InvokeAsync(HttpContext context)
@@ -103,13 +104,6 @@ public static class ServiceCollectionExtensions
     public static void AddRequestResponseLogger(this IServiceCollection services,
         Action<RequestResponseLoggerOptions>? configureOptions = null)
     {
-        services.AddHttpContextAccessor();
-        services.AddSingleton<ILogger>(sp =>
-        {
-            var logger = sp.GetRequiredService<Serilog.ILogger>();
-            return new Logger(logger);
-        });
-
         if (configureOptions != null)
         {
             services.Configure(configureOptions);

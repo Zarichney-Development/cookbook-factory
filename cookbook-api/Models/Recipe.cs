@@ -103,6 +103,12 @@ public class SynthesizedRecipe : IRecipe, ISynthesizedRecipe
     public required string Notes { get; set; }
 }
 
+public class RecipeAnalysis
+{
+    public bool Passes { get; set; }
+    public required string Feedback { get; set; }
+}
+
 public class AutoMapperProfile : Profile
 {
     public AutoMapperProfile()

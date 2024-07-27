@@ -1,26 +1,29 @@
 using System.Text.Json;
 using OpenAI;
 using OpenAI.Chat;
-using ILogger = Cookbook.Factory.Logging.ILogger;
+using Serilog;
+using ILogger = Serilog.ILogger;
 
 namespace Cookbook.Factory.Services;
 
 public interface IModelService
 {
-    Task<T> GetToolResponse<T>(string systemPrompt, string userPrompt, string functionName, string functionDescription,
+    Task<T> CallFunction<T>(string systemPrompt, string userPrompt, string functionName, string functionDescription,
         string functionParameters);
 }
 
-public class ModelService(OpenAIClient client, IConfiguration configuration, ILogger logger)
+public class ModelService(OpenAIClient client, IConfiguration configuration)
     : IModelService
 {
+    private readonly ILogger _log = Log.ForContext<ModelService>();
     private const string DefaultModel = "gpt-4o-mini";
 
-    public async Task<T> GetToolResponse<T>(string systemPrompt, string userPrompt, string functionName,
+    public async Task<T> CallFunction<T>(string systemPrompt, string userPrompt, string functionName,
         string functionDescription, string functionParameters)
     {
-        logger.LogDebug(
-            $"Getting response from model. System prompt: {systemPrompt}, User prompt: {userPrompt}, Function name: {functionName}, Function description: {functionDescription}, Function parameters: {functionParameters}");
+        _log.Information(
+            "Getting response from model. System prompt: {systemPrompt}, User prompt: {userPrompt}, Function name: {functionName}, Function description: {functionDescription}, Function parameters: {functionParameters}",
+            systemPrompt, userPrompt, functionName, functionDescription, functionParameters);
 
         var messages = new List<ChatMessage>
         {
@@ -49,7 +52,7 @@ public class ModelService(OpenAIClient client, IConfiguration configuration, ILo
         }
         catch (Exception e)
         {
-            logger.LogError(e, "Error occurred while getting response from model");
+            _log.Error(e, "Error occurred while getting response from model");
             throw;
         }
 
@@ -62,7 +65,7 @@ public class ModelService(OpenAIClient client, IConfiguration configuration, ILo
         {
             if (toolCall.FunctionName != functionName)
             {
-                logger.LogError("Expected function name {functionName} but got {toolCall.FunctionName}",
+                _log.Error("Expected function name {functionName} but got {toolCall.FunctionName}",
                     functionName, toolCall.FunctionName);
                 continue;
             }
@@ -82,8 +85,9 @@ public class ModelService(OpenAIClient client, IConfiguration configuration, ILo
             }
             catch (Exception e)
             {
-                logger.LogError(e,
-                    "Failed to deserialize tool call arguments to type {type}, attempted to deserialize {FunctionArguments}", typeof(T).Name, toolCall.FunctionArguments);
+                _log.Error(e,
+                    "Failed to deserialize tool call arguments to type {type}, attempted to deserialize {FunctionArguments}",
+                    typeof(T).Name, toolCall.FunctionArguments);
                 throw;
             }
         }

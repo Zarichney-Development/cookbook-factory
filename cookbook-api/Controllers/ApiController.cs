@@ -1,40 +1,34 @@
 using Cookbook.Factory.Models;
 using Cookbook.Factory.Services;
 using Microsoft.AspNetCore.Mvc;
-using ILogger = Cookbook.Factory.Logging.ILogger;
+using Serilog;
+using ILogger = Serilog.ILogger;
 
 namespace Cookbook.Factory.Controllers;
 
 [ApiController]
 [Route("api")]
-public class ApiController(ILogger logger, RecipeService recipeService) : ControllerBase
+public class ApiController(RecipeService recipeService) : ControllerBase
 {
+    private readonly ILogger _log = Log.ForContext<ApiController>();
+    
     [HttpPost("cookbook")]
-    public async Task<IActionResult> CreateCookbook([FromBody] CookbookOrder order)
+    public async Task<ActionResult<SynthesizedRecipe>> CreateCookbook([FromBody] CookbookOrder order)
     {
         // reject if no email
         if (string.IsNullOrWhiteSpace(order.Email))
         {
-            logger.LogWarning("No email provided in order");
+            _log.Warning("No email provided in order");
             return BadRequest("Email is required");
         }
 
-        try
-        {
-            var query = "buffalo ranch dip";
-            
-            var recipes = await recipeService.GetRecipes(query);
+        var query = "buffalo ranch dip";
 
-            var result = await recipeService.SynthesizeRecipe(recipes, order, query);
-            
-            return Ok(result);
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Error occurred while processing order");
-            return StatusCode(500, ex);
-        }
+        var recipes = await recipeService.GetRecipes(query);
 
+        var result = await recipeService.SynthesizeRecipe(recipes, order, query);
+
+        return Ok(result);
     }
 
 
@@ -43,7 +37,7 @@ public class ApiController(ILogger logger, RecipeService recipeService) : Contro
     {
         if (string.IsNullOrWhiteSpace(query))
         {
-            logger.LogWarning("Empty query received");
+            _log.Warning("Empty query received");
             return BadRequest("Query parameter is required");
         }
 
@@ -60,7 +54,7 @@ public class ApiController(ILogger logger, RecipeService recipeService) : Contro
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, $"Error occurred while processing query: {query}");
+            _log.Error(ex, $"Error occurred while processing query: {query}");
             return StatusCode(500, ex);
         }
     }

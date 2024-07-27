@@ -8,6 +8,7 @@
         <InvariantGlobalization>true</InvariantGlobalization>
         <RootNamespace>Cookbook.Factory</RootNamespace>
         <UserSecretsId>a35593bb-4d12-4d33-9746-36ebf20b99e7</UserSecretsId>
+        <NoWarn>OPENAI001</NoWarn>
     </PropertyGroup>
 
     <ItemGroup>
