@@ -1,5 +1,7 @@
+using System.Reflection;
 using Cookbook.Factory.Services;
 using Cookbook.Factory.Middleware;
+using Cookbook.Factory.Prompts;
 using OpenAI;
 using Microsoft.OpenApi.Models;
 using Serilog;
@@ -30,9 +32,10 @@ builder.Services.AddControllers()
 
 builder.Services.AddAutoMapper(typeof(Program));
 
+builder.Services.AddPrompts(typeof(PromptBase).Assembly);
+builder.Services.AddSingleton<FileService>();
 builder.Services.AddScoped<RecipeService>();
 builder.Services.AddScoped<WebScraperService>();
-builder.Services.AddScoped<FileService>();
 builder.Services.AddScoped<IModelService, ModelService>();
 
 builder.Services.AddEndpointsApiExplorer();
@@ -96,4 +99,22 @@ catch (Exception ex)
 finally
 {
     Log.CloseAndFlush();
+}
+
+
+public static class ServiceCollectionExtensions
+{
+    public static IServiceCollection AddPrompts(this IServiceCollection services, params Assembly[] assemblies)
+    {
+        var promptTypes = assemblies
+            .SelectMany(a => a.GetTypes())
+            .Where(type => type is { IsClass: true, IsAbstract: false } && typeof(PromptBase).IsAssignableFrom(type));
+
+        foreach (var promptType in promptTypes)
+        {
+            services.AddSingleton(promptType);
+        }
+
+        return services;
+    }
 }

@@ -22,9 +22,11 @@ public class ApiController(RecipeService recipeService) : ControllerBase
             return BadRequest("Email is required");
         }
 
-        var query = "buffalo ranch dip";
+        var query = "tacos";
 
         var recipes = await recipeService.GetRecipes(query);
+
+        order = recipeService.ProcessOrder(order);
 
         var result = await recipeService.SynthesizeRecipe(recipes, order, query);
 

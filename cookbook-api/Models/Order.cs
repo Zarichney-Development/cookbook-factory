@@ -5,6 +5,7 @@ namespace Cookbook.Factory.Models;
 
 public class CookbookOrder
 {
+    public string? OrderId { get; set; }
     public required string Email { get; set; }
     public required CookbookContent CookbookContent { get; init; }    
     public required CookbookDetails CookbookDetails { get; init; }

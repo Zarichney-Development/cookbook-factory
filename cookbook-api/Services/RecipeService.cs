@@ -3,15 +3,23 @@ using System.Text.Json;
 using AutoMapper;
 using Cookbook.Factory.Models;
 using Cookbook.Factory.Prompts;
-using OpenAI;
 using OpenAI.Assistants;
 using Serilog;
 using ILogger = Serilog.ILogger;
 
 namespace Cookbook.Factory.Services;
 
-public class RecipeService(IModelService modelService, WebScraperService webscraper, IMapper mapper,
-    FileService fileService, OpenAIClient client)
+
+public class RecipeService(
+    IModelService modelService,
+    WebScraperService webscraper,
+    IMapper mapper,
+    FileService fileService,
+    RankRecipePrompt rankRecipePrompt,
+    CleanRecipePrompt cleanRecipePrompt,
+    SynthesizeRecipePrompt synthesizeRecipePrompt,
+    AnalyzeRecipePrompt analyzeRecipePrompt
+)
 {
     private readonly ILogger _log = Log.ForContext<RecipeService>();
     private const int DontKeepScoreThreshold = 50;
@@ -56,27 +64,26 @@ public class RecipeService(IModelService modelService, WebScraperService webscra
         // Not sure how much value these lesser scores can be, but might as well store them, except for the irrelevant ones
         var allRecipes = cleanedRecipes.Concat(filteredOutRecipes).ToList();
 
-        await fileService.WriteToFile(RecipeOutputDirectoryName, query,
+        fileService.WriteToFile(RecipeOutputDirectoryName, query,
             allRecipes.OrderByDescending(r => r.RelevancyScore));
 
         return cleanedRecipes.OrderByDescending(r => r.RelevancyScore).ToList();
     }
 
-    private async Task<RelevancyResult> RankRecipe(Recipe recipe, string query)
+    public async Task<RelevancyResult> RankRecipe(Recipe recipe, string query)
     {
-        const string systemPrompt = PrompCatalog.RankRecipe.SystemPrompt;
-        var userPrompt = PrompCatalog.RankRecipe.UserPrompt(recipe, query);
-        var (functionName, functionDescription, functionParameters) = PrompCatalog.RankRecipe.GetFunction();
-
         var result = await modelService.CallFunction<RelevancyResult>(
-            systemPrompt, userPrompt, functionName, functionDescription, functionParameters);
+            rankRecipePrompt.SystemPrompt,
+            rankRecipePrompt.GetUserPrompt(recipe, query),
+            rankRecipePrompt.GetFunction()
+        );
 
         _log.Information("Relevancy filter result: {@Result}", result);
 
         return result;
     }
 
-    private async Task<List<Recipe>> RankRecipesAsync(List<Recipe> recipes, string query)
+    private async Task<List<Recipe>> RankRecipesAsync(IReadOnlyCollection<Recipe> recipes, string query)
     {
         // Don't rank if there are already enough relevant recipes
         if (recipes.Count(r => r.RelevancyScore >= AcceptableScoreThreshold) >= MinRelevantRecipes)
@@ -120,7 +127,7 @@ public class RecipeService(IModelService modelService, WebScraperService webscra
         return rankedRecipes.OrderByDescending(r => r.RelevancyScore).ToList();
     }
 
-    private async Task<List<Recipe>> CleanRecipesAsync(List<Recipe> recipes)
+    private async Task<List<Recipe>> CleanRecipesAsync(IEnumerable<Recipe> recipes)
     {
         var cleanedRecipes = new ConcurrentQueue<Recipe>();
 
@@ -150,14 +157,13 @@ public class RecipeService(IModelService modelService, WebScraperService webscra
             return rawRecipe;
         }
 
-        const string systemPrompt = PrompCatalog.CleanRecipe.SystemPrompt;
-        var userPrompt = PrompCatalog.CleanRecipe.UserPrompt(mapper, rawRecipe);
-        var (functionName, functionDescription, functionParameters) = PrompCatalog.CleanRecipe.GetFunction();
-
         try
         {
             var cleanedRecipe = await modelService.CallFunction<Recipe>(
-                systemPrompt, userPrompt, functionName, functionDescription, functionParameters);
+                cleanRecipePrompt.SystemPrompt,
+                cleanRecipePrompt.GetUserPrompt(rawRecipe),
+                cleanRecipePrompt.GetFunction()
+            );
 
             _log.Information("Cleaned recipe data: {@CleanedRecipe}", cleanedRecipe);
 
@@ -177,238 +183,158 @@ public class RecipeService(IModelService modelService, WebScraperService webscra
         }
     }
 
+    private void WriteRecipeToOrderDir(string orderId, string recipeName, SynthesizedRecipe synthesizedRecipe)
+    {
+        var fullDir = Path.Combine(Path.Combine(OrdersOutputDirectoryName, orderId), "recipes");
+        fileService.WriteToFile(fullDir, recipeName, synthesizedRecipe);
+    }
+
+    public CookbookOrder ProcessOrder(CookbookOrder order)
+    {
+        order.OrderId = Guid.NewGuid().ToString()[..8];
+        var ordersDir = Path.Combine(OrdersOutputDirectoryName, order.OrderId);
+
+        fileService.WriteToFile(ordersDir, "Order", order);
+        
+        _log.Information("Order intake: {@Order}", order);
+
+        return order;
+    }
+
     public async Task<SynthesizedRecipe> SynthesizeRecipe(List<Recipe> recipes, CookbookOrder order, string recipeName)
     {
+        SynthesizedRecipe synthesizedRecipe;
+        
+        var synthesizingAssistant = await modelService.CreateAssistant(synthesizeRecipePrompt);
+        var analyzeAssistant = await modelService.CreateAssistant(analyzeRecipePrompt);
+
+        var synthesizingThread = await modelService.CreateThread();
+        var analyzeThread = await modelService.CreateThread();
+
         try
         {
-            var synthesizedRecipe = await SynthesizeRecipe(recipes, order);
+            await InitiateSynthesis(synthesizingThread, recipes, order);
+            
+            synthesizedRecipe =  await ProcessSynthesisUntilApproved(synthesizingThread, synthesizingAssistant, analyzeThread, analyzeAssistant, order, recipeName);
 
-            _log.Information("Synthesized recipe data: {Recipe}", synthesizedRecipe);
+            _log.Information("Recipe synthesized: {@Recipe}", synthesizedRecipe);
 
-            var orderNumber = Guid.NewGuid().ToString()[..8];
-            var ordersDir = Path.Combine(OrdersOutputDirectoryName, orderNumber);
-
-            await fileService.WriteToFile(ordersDir, "Order", order);
-            await fileService.WriteToFile(Path.Combine(ordersDir, "recipes"), recipeName, synthesizedRecipe);
-
-            return synthesizedRecipe;
+            WriteRecipeToOrderDir(order.OrderId!, recipeName, synthesizedRecipe);
         }
         catch (Exception ex)
         {
             _log.Error(ex, "Error synthesizing recipe: {Message}", ex.Message);
             throw;
         }
+        finally
+        {
+            await CleanupResources(synthesizingAssistant, analyzeAssistant, synthesizingThread, analyzeThread);
+        }
+
+        return synthesizedRecipe;
     }
 
-
-    public async Task<SynthesizedRecipe> SynthesizeRecipe(List<Recipe> recipes, CookbookOrder order)
+    private async Task InitiateSynthesis(string synthesizingThread, List<Recipe> recipes, CookbookOrder order)
     {
-        var assistantClient = client.GetAssistantClient();
+        var userPrompt = synthesizeRecipePrompt.GetUserPrompt(recipes, order);
+        await modelService.CreateMessage(synthesizingThread, userPrompt);
+    }
 
-        try
+    private async Task<SynthesizedRecipe> ProcessSynthesisUntilApproved(string synthesizingThread,
+        string synthesizingAssistant, string analyzeThread, string analyzeAssistant, CookbookOrder order,
+        string recipeName)
+    {
+        var count = 0;
+        
+        while (true)
         {
-            // Create threads for both assistants
-            var synthesizingThread = (await assistantClient.CreateThreadAsync()).Value;
-            var analystThread = (await assistantClient.CreateThreadAsync()).Value;
+            count++;
+            
+            var synthesizedRecipe = await ProcessSynthesisRun(synthesizingThread, synthesizingAssistant);
+            
+            _log.Information("Synthesized recipe [{count}]: {@Recipe}", count, synthesizedRecipe);
+            
+            var analysisResult = await ProcessAnalysisRun(analyzeThread, analyzeAssistant, synthesizedRecipe, order, recipeName);
 
-            // Create assistants
-            var recipeAssistant = (await assistantClient.CreateAssistantAsync("gpt-4o-mini",
-                new AssistantCreationOptions
-                {
-                    Instructions = PrompCatalog.SynthesizeRecipe.SystemPrompt,
-                    Tools =
-                    {
-                        new FunctionToolDefinition
-                        {
-                            FunctionName = PrompCatalog.SynthesizeRecipe.Function.Name,
-                            Description = PrompCatalog.SynthesizeRecipe.Function.Description,
-                            Parameters = BinaryData.FromString(PrompCatalog.SynthesizeRecipe.Function.Parameters)
-                        }
-                    }
-                })).Value;
-
-            var analystAssistant = (await assistantClient.CreateAssistantAsync("gpt-4o-mini",
-                new AssistantCreationOptions
-                {
-                    Instructions = PrompCatalog.AnalyzeRecipe.SystemPrompt,
-                    Tools =
-                    {
-                        new FunctionToolDefinition
-                        {
-                            FunctionName = PrompCatalog.AnalyzeRecipe.Function.Name,
-                            Description = PrompCatalog.AnalyzeRecipe.Function.Description,
-                            Parameters = BinaryData.FromString(PrompCatalog.AnalyzeRecipe.Function.Parameters)
-                        }
-                    }
-                })).Value;
-
-            // Start the recipe synthesizer thread
-            await assistantClient.CreateMessageAsync(
-                synthesizingThread.Id,
-                MessageRole.User,
-                new[] { MessageContent.FromText(PrompCatalog.SynthesizeRecipe.UserPrompt(recipes, order)) }
-            );
-
-            var synthesizeRun = (await assistantClient.CreateRunAsync(
-                synthesizingThread.Id,
-                recipeAssistant.Id,
-                new RunCreationOptions
-                {
-                    ParallelToolCallsEnabled = false,
-                    ToolConstraint = ToolConstraint.Required,
-                }
-                )).Value;
-
-            SynthesizedRecipe curatedRecipe = null!;
-            var recipeApproved = false;
-            ThreadRun? analystRun = null;
-
-            while (!recipeApproved)
+            _log.Information("Analysis result [{verdict}]: {AnalysisResult}", analysisResult.Passes, analysisResult.Feedback);
+            
+            if (analysisResult.Passes)
             {
-                // Process generator run
-                while (!synthesizeRun.Status.IsTerminal)
-                {
-                    await Task.Delay(TimeSpan.FromSeconds(1));
-                    synthesizeRun = await assistantClient.GetRunAsync(synthesizeRun.ThreadId, synthesizeRun.Id);
-
-                    if (synthesizeRun.Status == RunStatus.RequiresAction)
-                    {
-                        foreach (var action in synthesizeRun.RequiredActions)
-                        {
-                            if (action.FunctionName != PrompCatalog.SynthesizeRecipe.Function.Name) continue;
-
-                            curatedRecipe = JsonSerializer.Deserialize<SynthesizedRecipe>(action.FunctionArguments,
-                                new JsonSerializerOptions
-                                {
-                                    PropertyNameCaseInsensitive = true
-                                })!;
-
-                            if (analystRun == null)
-                            {
-                                // Initial recipe: create a message and start the analyst run
-                                await assistantClient.CreateMessageAsync(
-                                    analystThread.Id,
-                                    MessageRole.User,
-                                    new[]
-                                    {
-                                        MessageContent.FromText(
-                                            PrompCatalog.AnalyzeRecipe.UserPrompt(curatedRecipe, order))
-                                    }
-                                );
-                                analystRun =
-                                    await assistantClient.CreateRunAsync(analystThread.Id, analystAssistant.Id,
-                                        new RunCreationOptions
-                                        {
-                                            ParallelToolCallsEnabled = false,
-                                            ToolConstraint = ToolConstraint.Required,
-                                        }
-                                    );
-                            }
-                            else
-                            {
-                                // Subsequent recipes: submit as tool output to the analyst run
-                                await assistantClient.SubmitToolOutputsToRunAsync(analystRun.ThreadId,
-                                    analystRun.Id,
-                                    new List<ToolOutput>
-                                    {
-                                        new(analystRun.RequiredActions[0].ToolCallId,
-                                            JsonSerializer.Serialize(curatedRecipe))
-                                    });
-                            }
-
-                            var analysisConducted = false;
-
-                            // Process analyst run
-                            while (!analystRun.Status.IsTerminal && !analysisConducted)
-                            {
-                                await Task.Delay(TimeSpan.FromSeconds(1));
-                                analystRun = await assistantClient.GetRunAsync(analystRun.ThreadId, analystRun.Id);
-
-                                if (analystRun.Status == RunStatus.RequiresAction)
-                                {
-                                    foreach (var analystAction in analystRun.RequiredActions)
-                                    {
-                                        if (analystAction.FunctionName != PrompCatalog.AnalyzeRecipe.Function.Name)
-                                            continue;
-
-                                        var analysisResult = JsonSerializer.Deserialize<RecipeAnalysis>(
-                                            analystAction.FunctionArguments,
-                                            new JsonSerializerOptions
-                                            {
-                                                PropertyNameCaseInsensitive = true
-                                            })!;
-
-                                        analysisConducted = true;
-
-                                        if (analysisResult.Passes)
-                                        {
-                                            recipeApproved = true;
-
-                                            _log.Information("Recipe approved: {@AnalysisResult}", analysisResult);
-
-                                            // Cancel both runs as we have an approved recipe
-                                            await assistantClient.CancelRunAsync(synthesizeRun.ThreadId,
-                                                synthesizeRun.Id);
-                                            await assistantClient.CancelRunAsync(analystRun.ThreadId, analystRun.Id);
-                                        }
-                                        else
-                                        {
-                                            _log.Information("Recipe needs improvement: {@AnalysisResult}",
-                                                analysisResult);
-
-                                            // Send feedback to the generator via tool output
-                                            await assistantClient.SubmitToolOutputsToRunAsync(
-                                                synthesizeRun.ThreadId, synthesizeRun.Id,
-                                                new List<ToolOutput>
-                                                {
-                                                    new(action.ToolCallId,
-                                                        JsonSerializer.Serialize(analysisResult))
-                                                });
-                                            break; // Exit the foreach loop to continue the analyst run
-                                        }
-                                    }
-                                }
-
-                                if (recipeApproved)
-                                {
-                                    break; // Exit the while loop if recipe is approved
-                                }
-                            }
-
-                            if (recipeApproved)
-                            {
-                                break; // Exit the foreach loop if recipe is approved
-                            }
-                        }
-                    }
-
-                    if (recipeApproved)
-                    {
-                        break; // Exit the while loop if recipe is approved
-                    }
-                }
-
-                if (!recipeApproved && synthesizeRun.Status.IsTerminal)
-                {
-                    // Start a new generator run for revision if needed
-                    synthesizeRun = await assistantClient.CreateRunAsync(synthesizingThread.Id, recipeAssistant.Id);
-                }
+                return synthesizedRecipe;
             }
 
-            _log.Information("Final curated recipe: {recipe}", curatedRecipe);
-
-            // Clean up resources
-            await assistantClient.DeleteAssistantAsync(recipeAssistant.Id);
-            await assistantClient.DeleteAssistantAsync(analystAssistant.Id);
-            await assistantClient.DeleteThreadAsync(synthesizingThread.Id);
-            await assistantClient.DeleteThreadAsync(analystThread.Id);
-
-            return curatedRecipe;
+            await ProvideAnalysisFeedback(synthesizingThread, synthesizingAssistant, analysisResult);
         }
-        catch (Exception ex)
+    }
+
+    private async Task<SynthesizedRecipe> ProcessSynthesisRun(string threadId, string assistantId)
+    {
+        var run = await modelService.CreateRun(threadId, assistantId, parallelToolCallsEnabled: false, toolConstraintRequired: true);
+
+        while (true)
         {
-            _log.Error(ex, $"Error in recipe curation process: {ex.Message}");
-            throw;
+            var (isComplete, status) = await modelService.GetRun(threadId, run);
+
+            if (isComplete)
+            {
+                throw new Exception("Synthesis run completed without producing a recipe");
+            }
+
+            if (status == RunStatus.RequiresAction)
+            {
+                return await modelService.GetRunAction<SynthesizedRecipe>(threadId, run, synthesizeRecipePrompt.GetFunction().Name);
+            }
+
+            await Task.Delay(TimeSpan.FromSeconds(1));
         }
+    }
+
+    private async Task<RecipeAnalysis> ProcessAnalysisRun(string threadId, string assistantId, SynthesizedRecipe recipe,
+        CookbookOrder order, string recipeName)
+    {
+        var userPrompt = analyzeRecipePrompt.GetUserPrompt(recipe, order, recipeName);
+        await modelService.CreateMessage(threadId, userPrompt);
+
+        var run = await modelService.CreateRun(threadId, assistantId, parallelToolCallsEnabled: false, toolConstraintRequired: true);
+
+        while (true)
+        {
+            var (isComplete, status) = await modelService.GetRun(threadId, run);
+
+            if (isComplete)
+            {
+                throw new Exception("Analysis run completed without producing a result");
+            }
+
+            if (status == RunStatus.RequiresAction)
+            {
+                return await modelService.GetRunAction<RecipeAnalysis>(threadId, run, analyzeRecipePrompt.GetFunction().Name);
+            }
+
+            await Task.Delay(TimeSpan.FromSeconds(1));
+        }
+    }
+
+    private async Task ProvideAnalysisFeedback(string threadId, string assistantId, RecipeAnalysis analysis)
+    {
+        var run = await modelService.CreateRun(threadId, assistantId, parallelToolCallsEnabled: false, toolConstraintRequired: true);
+        var toolCallId = await modelService.GetToolCallId(threadId, run, synthesizeRecipePrompt.GetFunction().Name);
+
+        await modelService.SubmitToolOutputsToRun(
+            threadId,
+            run,
+            new List<(string, string)>
+            {
+                (toolCallId, JsonSerializer.Serialize(analysis))
+            }
+        );
+    }
+
+    private async Task CleanupResources(string synthesizingAssistant, string analyzeAssistant, string synthesizingThread, string analyzeThread)
+    {
+        await modelService.DeleteAssistant(synthesizingAssistant);
+        await modelService.DeleteAssistant(analyzeAssistant);
+        await modelService.DeleteThread(synthesizingThread);
+        await modelService.DeleteThread(analyzeThread);
     }
 }
