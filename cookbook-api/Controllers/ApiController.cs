@@ -8,29 +8,25 @@ namespace Cookbook.Factory.Controllers;
 
 [ApiController]
 [Route("api")]
-public class ApiController(RecipeService recipeService) : ControllerBase
+public class ApiController(RecipeService recipeService, OrderService orderService) : ControllerBase
 {
     private readonly ILogger _log = Log.ForContext<ApiController>();
     
     [HttpPost("cookbook")]
-    public async Task<ActionResult<SynthesizedRecipe>> CreateCookbook([FromBody] CookbookOrder order)
+    public async Task<ActionResult<CookbookOrder>> CreateCookbook([FromBody] CookbookOrderSubmission submission)
     {
         // reject if no email
-        if (string.IsNullOrWhiteSpace(order.Email))
+        if (string.IsNullOrWhiteSpace(submission.Email))
         {
             _log.Warning("No email provided in order");
             return BadRequest("Email is required");
         }
 
-        var query = "tacos";
+        var order = await orderService.ProcessOrderSubmission(submission);
 
-        var recipes = await recipeService.GetRecipes(query);
+        order = await orderService.GenerateCookbookAsync(order, true);
 
-        order = recipeService.ProcessOrder(order);
-
-        var result = await recipeService.SynthesizeRecipe(recipes, order, query);
-
-        return Ok(result);
+        return Ok(order);
     }
 
 

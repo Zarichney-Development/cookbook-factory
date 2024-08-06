@@ -1,0 +1,136 @@
+[
+  {
+    "testCase": 1,
+    "description": "Minimal context order",
+    "order": {
+      "Email": "minimal@example.com",
+      "CookbookContent": {
+        "ExpectedRecipeCount": 10
+      },
+      "CookbookDetails": {},
+      "UserDetails": {}
+    }
+  },
+  {
+    "testCase": 2,
+    "description": "Simple vegetarian cookbook",
+    "order": {
+      "Email": "veggie@example.com",
+      "CookbookContent": {
+        "RecipeSpecificationType": "GeneralMealTypes",
+        "GeneralMealTypes": ["lunch", "dinner"],
+        "ExpectedRecipeCount": 15
+      },
+      "CookbookDetails": {
+        "Theme": "Quick and Easy Vegetarian Meals",
+        "PrimaryPurpose": "Weeknight cooking",
+        "DesiredCuisines": ["Italian", "Mexican", "Indian"]
+      },
+      "UserDetails": {
+        "DietaryRestrictions": ["vegetarian"],
+        "SkillLevel": "beginner",
+        "TimeConstraints": "30 minutes or less",
+        "ServingSize": 2
+      }
+    }
+  },
+  {
+    "testCase": 3,
+    "description": "Mixed specific recipes and general types",
+    "order": {
+      "Email": "mixed@example.com",
+      "CookbookContent": {
+        "RecipeSpecificationType": "Mixed",
+        "SpecificRecipes": ["Spaghetti Carbonara", "Chicken Tikka Masala", "Apple Pie"],
+        "GeneralMealTypes": ["healthy breakfast", "vegetarian lunch", "fish dinner"],
+        "ExpectedRecipeCount": 20
+      },
+      "CookbookDetails": {
+        "Theme": "Global Flavors at Home",
+        "PrimaryPurpose": "Exploring world cuisines",
+        "DesiredCuisines": ["Italian", "Indian", "American", "Japanese", "Greek"],
+        "CulturalExploration": "Focus on authentic ingredients and techniques"
+      },
+      "UserDetails": {
+        "SkillLevel": "intermediate",
+        "CookingGoals": ["learn new techniques", "impress guests"],
+        "HealthFocus": "balanced nutrition",
+        "ServingSize": 4
+      }
+    }
+  },
+  {
+    "testCase": 4,
+    "description": "Complex order with specific dietary needs",
+    "order": {
+      "Email": "complex@example.com",
+      "CookbookContent": {
+        "RecipeSpecificationType": "SpecificRecipes",
+        "SpecificRecipes": ["Gluten-free Pizza", "Keto Chicken Alfredo", "Vegan Chocolate Mousse", "Low-carb Sushi Rolls"],
+        "ExpectedRecipeCount": 25
+      },
+      "CookbookDetails": {
+        "Theme": "Healthy Indulgence",
+        "PrimaryPurpose": "Managing dietary restrictions without sacrificing flavor",
+        "DesiredCuisines": ["Italian", "American", "Japanese", "French"],
+        "NutritionalGuidance": "High protein, low carb, sugar-free",
+        "RecipeModification": "Adapt classic recipes to meet dietary needs",
+        "IngredientFlexibility": "Provide substitutions for common allergens",
+        "OverallStyle": "Modern and clean",
+        "Organization": "By meal type and dietary restriction",
+        "SpecialSections": ["Keto-friendly Desserts", "Gluten-free Breads"],
+        "Storytelling": "Include background on recipe origins and modifications",
+        "EducationalContent": ["Understanding macronutrients", "Cooking with alternative flours"],
+        "PracticalFeatures": ["Meal prep tips", "Storing and reheating guidelines"]
+      },
+      "UserDetails": {
+        "DietaryRestrictions": ["gluten-free", "keto"],
+        "Allergies": ["nuts", "soy"],
+        "SkillLevel": "advanced",
+        "CookingGoals": ["optimize nutrition", "manage autoimmune condition"],
+        "TimeConstraints": "Mix of quick meals and weekend projects",
+        "HealthFocus": "anti-inflammatory foods",
+        "FamilyConsiderations": "Picky eaters and varied dietary needs",
+        "ServingSize": 4
+      }
+    }
+  },
+  {
+    "testCase": 5,
+    "description": "Comprehensive order utilizing all fields",
+    "order": {
+      "Email": "comprehensive@example.com",
+      "CookbookContent": {
+        "RecipeSpecificationType": "Mixed",
+        "SpecificRecipes": ["Thai Green Curry", "Homemade Sourdough Bread", "Classic Tiramisu"],
+        "GeneralMealTypes": ["family-friendly dinners", "impressive desserts", "healthy lunches", "festive appetizers"],
+        "ExpectedRecipeCount": 30
+      },
+      "CookbookDetails": {
+        "Theme": "Around the World in 30 Recipes",
+        "PrimaryPurpose": "Culinary adventure and skill development",
+        "DesiredCuisines": ["Thai", "Italian", "French", "Japanese", "Indian", "Mexican"],
+        "CulturalExploration": "Deep dive into authentic techniques and ingredients",
+        "NutritionalGuidance": "Balanced meals with whole foods focus",
+        "RecipeModification": "Offer both traditional and healthier versions",
+        "IngredientFlexibility": "Seasonal variations and hard-to-find ingredient substitutions",
+        "OverallStyle": "Rustic with modern touches",
+        "Organization": "By cuisine, with difficulty progression",
+        "SpecialSections": ["Bread Baking Masterclass", "Homemade Pasta Workshop", "Spice Blending 101"],
+        "Storytelling": "Include personal anecdotes and cultural context for each recipe",
+        "EducationalContent": ["Knife skills", "Food plating techniques", "Wine pairing basics"],
+        "PracticalFeatures": ["Scaling recipes", "Equipment recommendations", "Leftover transformation ideas"]
+      },
+      "UserDetails": {
+        "DietaryRestrictions": ["pescatarian"],
+        "Allergies": ["tree nuts"],
+        "SkillLevel": "intermediate with aspirations",
+        "CookingGoals": ["master ethnic cuisines", "improve presentation skills", "efficient meal planning"],
+        "TimeConstraints": "Busy weeknights, leisurely weekends",
+        "HealthFocus": "Incorporating more vegetables and whole grains",
+        "FamilyConsiderations": "Cooking for a partner and two teenage children",
+        "ServingSize": 4
+      }
+    }
+  }
+]

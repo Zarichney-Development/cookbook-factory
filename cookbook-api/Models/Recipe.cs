@@ -2,6 +2,11 @@ using AutoMapper;
 
 namespace Cookbook.Factory.Models;
 
+public class RecipeProposalResult
+{
+    public required List<string> Recipes { get; init; }
+}
+
 public interface IRecipe
 {
     public string Title { get; set; }
@@ -101,12 +106,25 @@ public class SynthesizedRecipe : IRecipe, ISynthesizedRecipe
     public required List<string> Ingredients { get; set; }
     public required List<string> Directions { get; set; }
     public required string Notes { get; set; }
+    
+    public int? QualityScore { get; set; }
+    public string? Analysis { get; set; }
+    public string? Suggestions { get; set; }
+    public bool IsAnalyzed => QualityScore.HasValue && !string.IsNullOrEmpty(Analysis) && !string.IsNullOrEmpty(Suggestions);
+
+    public void AddAnalysisResult(RecipeAnalysis analysisResult)
+    {
+        QualityScore = analysisResult.QualityScore;
+        Analysis = analysisResult.Analysis;
+        Suggestions = analysisResult.Suggestions;
+    }
 }
 
 public class RecipeAnalysis
 {
-    public bool Passes { get; set; }
-    public required string Feedback { get; set; }
+    public int QualityScore { get; set; }
+    public required string Analysis  { get; set; }
+    public required string Suggestions  { get; set; }
 }
 
 public class AutoMapperProfile : Profile

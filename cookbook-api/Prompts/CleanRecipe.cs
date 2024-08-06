@@ -1,6 +1,7 @@
 using System.Text.Json;
 using AutoMapper;
 using Cookbook.Factory.Models;
+using Cookbook.Factory.Services;
 
 namespace Cookbook.Factory.Prompts;
 
@@ -8,7 +9,7 @@ public class CleanRecipePrompt(IMapper mapper) : PromptBase
 {
     public override string Name => "Recipe Cleaner";
     public override string Description => "Clean and standardize scraped recipe data";
-    public override string Model => "gpt-4o-mini";
+    public override string Model => LlmModels.Gpt4Omini;
     public override string SystemPrompt => 
         """
         You are specialized in cleaning and standardizing scraped recipe data. Follow these guidelines:

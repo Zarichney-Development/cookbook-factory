@@ -1,3 +1,5 @@
+using System.ClientModel;
+using System.Collections;
 using AutoMapper;
 using Cookbook.Factory.Prompts;
 using OpenAI;
@@ -8,12 +10,22 @@ using ILogger = Serilog.ILogger;
 
 namespace Cookbook.Factory.Services;
 
-public interface IModelService
+public static class LlmModels
+{
+    public const string Gpt4Omini = "gpt-4o-mini";
+}
+
+public interface ILlmService
 {
     Task<string> CreateAssistant(PromptBase prompt);
     Task<string> CreateThread();
     Task CreateMessage(string threadId, string content, MessageRole role = MessageRole.User);
-    Task<string> CreateRun(string threadId, string assistantId, bool parallelToolCallsEnabled = false, bool toolConstraintRequired = false);
+
+    Task<string> CreateRun(string threadId, string assistantId, bool toolConstraintRequired = false,
+        bool parallelToolCallsEnabled = false);
+
+    Task<ChatCompletion> GetCompletion(IEnumerable<ChatMessage> messages, ChatCompletionOptions? options = null);
+
     Task<(bool isComplete, RunStatus status)> GetRun(string threadId, string runId);
     Task<string> CancelRun(string threadId, string runId);
     Task SubmitToolOutputsToRun(string threadId, string runId, List<(string toolCallId, string output)> toolOutputs);
@@ -24,11 +36,10 @@ public interface IModelService
     Task<string> GetToolCallId(string threadId, string runId, string functionName);
 }
 
-public class ModelService(OpenAIClient client, IMapper mapper, IConfiguration configuration) : IModelService
+public class LlmService(OpenAIClient client, IMapper mapper, IConfiguration configuration) : ILlmService
 {
-
-    private readonly ILogger _log = Log.ForContext<ModelService>();
-    private const string DefaultModel = "gpt-4o-mini";
+    private readonly ILogger _log = Log.ForContext<LlmService>();
+    private readonly string _defaultModel = configuration["OpenAI:ModelName"] ?? LlmModels.Gpt4Omini;
 
     public async Task<string> CreateAssistant(PromptBase prompt)
     {
@@ -36,13 +47,14 @@ public class ModelService(OpenAIClient client, IMapper mapper, IConfiguration co
         {
             var assistantClient = client.GetAssistantClient();
             var functionToolDefinition = mapper.Map<FunctionToolDefinition>(prompt.GetFunction());
-            var response = await assistantClient.CreateAssistantAsync(prompt.Model, new AssistantCreationOptions
-            {
-                Name = prompt.Name,
-                Description = prompt.Description,
-                Instructions = prompt.SystemPrompt,
-                Tools = { functionToolDefinition }
-            });
+            var response = await assistantClient.CreateAssistantAsync(configuration["OpenAI:ModelName"] ?? prompt.Model,
+                new AssistantCreationOptions
+                {
+                    Name = prompt.Name,
+                    Description = prompt.Description,
+                    Instructions = prompt.SystemPrompt,
+                    Tools = { functionToolDefinition }
+                });
             return response.Value.Id;
         }
         catch (Exception e)
@@ -85,7 +97,8 @@ public class ModelService(OpenAIClient client, IMapper mapper, IConfiguration co
         }
     }
 
-    public async Task<string> CreateRun(string threadId, string assistantId, bool parallelToolCallsEnabled = false, bool toolConstraintRequired = false)
+    public async Task<string> CreateRun(string threadId, string assistantId, bool toolConstraintRequired = false,
+        bool parallelToolCallsEnabled = false)
     {
         try
         {
@@ -93,9 +106,12 @@ public class ModelService(OpenAIClient client, IMapper mapper, IConfiguration co
             var response = await assistantClient.CreateRunAsync(threadId, assistantId, new RunCreationOptions
             {
                 ParallelToolCallsEnabled = parallelToolCallsEnabled,
-                ToolConstraint = toolConstraintRequired ? ToolConstraint.Required : ToolConstraint.None
+                ToolConstraint = toolConstraintRequired ? ToolConstraint.Required : ToolConstraint.None,
             });
-            return response.Value.Id;
+
+            var threadRun = response.Value;
+
+            return threadRun.Id;
         }
         catch (Exception e)
         {
@@ -127,24 +143,34 @@ public class ModelService(OpenAIClient client, IMapper mapper, IConfiguration co
         try
         {
             var assistantClient = client.GetAssistantClient();
+
+            var run = await GetRun(threadId, runId);
+            if (run.isComplete)
+            {
+                return "Run is already complete.";
+            }
+
             var responseResult = await assistantClient.CancelRunAsync(threadId, runId);
+
             var response = responseResult.Value
-                ?? throw new Exception("Failed to cancel run. Response was null.");
+                           ?? throw new Exception("Failed to cancel run. Response was null.");
+
             return response.Status.ToString()!;
         }
         catch (Exception e)
         {
             _log.Error(e, "Error occurred while cancelling run {runId} for thread {threadId}", runId, threadId);
-            throw;
+            return "Failed to cancel run.";
         }
     }
 
-    public async Task SubmitToolOutputsToRun(string threadId, string runId, List<(string toolCallId, string output)> toolOutputs)
+    public async Task SubmitToolOutputsToRun(string threadId, string runId,
+        List<(string toolCallId, string output)> toolOutputs)
     {
         try
         {
             var assistantClient = client.GetAssistantClient();
-            await assistantClient.SubmitToolOutputsToRunAsync(threadId, runId, 
+            await assistantClient.SubmitToolOutputsToRunAsync(threadId, runId,
                 toolOutputs.Select(to => new ToolOutput(to.toolCallId, to.output)).ToList());
         }
         catch (Exception e)
@@ -165,7 +191,6 @@ public class ModelService(OpenAIClient client, IMapper mapper, IConfiguration co
         catch (Exception e)
         {
             _log.Error(e, "Error occurred while deleting assistant {assistantId}", assistantId);
-            throw;
         }
     }
 
@@ -179,7 +204,6 @@ public class ModelService(OpenAIClient client, IMapper mapper, IConfiguration co
         catch (Exception e)
         {
             _log.Error(e, "Error occurred while deleting thread {threadId}", threadId);
-            throw;
         }
     }
 
@@ -195,30 +219,38 @@ public class ModelService(OpenAIClient client, IMapper mapper, IConfiguration co
             new UserChatMessage(userPrompt)
         };
 
-        var functionTool = ChatTool.CreateFunctionTool(
+        return await CallFunction<T>(function, messages);
+    }
+
+
+    private async Task<T> CallFunction<T>(FunctionDefinition function, IEnumerable<ChatMessage> messages)
+        => await CallFunction<T>(messages, ChatTool.CreateFunctionTool(
             functionName: function.Name,
             functionDescription: function.Description,
             functionParameters: BinaryData.FromString(function.Parameters)
-        );
+        ));
 
-        var options = new ChatCompletionOptions
-        {
-            Tools = { functionTool }
-        };
+    public async Task<ChatCompletion> GetCompletion(IEnumerable<ChatMessage> messages, ChatCompletionOptions? options = null)
+    {
+        var chatClient = client.GetChatClient(_defaultModel);
 
-        var model = configuration["OpenAI:ModelName"] ?? DefaultModel;
-        var chatClient = client.GetChatClient(model);
-
-        ChatCompletion chatCompletion;
         try
         {
-            chatCompletion = await chatClient.CompleteChatAsync(messages, options);
+            return await chatClient.CompleteChatAsync(messages, options);
         }
         catch (Exception e)
         {
             _log.Error(e, "Error occurred while getting response from model");
             throw;
         }
+    }
+
+    private async Task<T> CallFunction<T>(IEnumerable<ChatMessage> messages, ChatTool functionTool)
+    {
+        var chatCompletion = await GetCompletion(messages, new ChatCompletionOptions
+        {
+            Tools = { functionTool }
+        });
 
         if (chatCompletion.FinishReason != ChatFinishReason.ToolCalls)
         {
@@ -227,10 +259,10 @@ public class ModelService(OpenAIClient client, IMapper mapper, IConfiguration co
 
         foreach (var toolCall in chatCompletion.ToolCalls)
         {
-            if (toolCall.FunctionName != function.Name)
+            if (toolCall.FunctionName != functionTool.FunctionName)
             {
                 _log.Error("Expected function name {functionName} but got {toolCall.FunctionName}",
-                    function.Name, toolCall.FunctionName);
+                    functionTool.FunctionName, toolCall.FunctionName);
                 continue;
             }
 
@@ -254,6 +286,7 @@ public class ModelService(OpenAIClient client, IMapper mapper, IConfiguration co
 
         throw new Exception("Failed to get a valid response from the model.");
     }
+
     public async Task<T> GetRunAction<T>(string threadId, string runId, string functionName)
     {
         try
@@ -261,7 +294,7 @@ public class ModelService(OpenAIClient client, IMapper mapper, IConfiguration co
             var assistantClient = client.GetAssistantClient();
             var runResult = await assistantClient.GetRunAsync(threadId, runId);
             var run = runResult.Value;
-            
+
             if (run.Status != RunStatus.RequiresAction)
             {
                 throw new InvalidOperationException($"Run status is {run.Status}, expected RequiresAction");

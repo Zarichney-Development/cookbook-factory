@@ -15,7 +15,7 @@
         <PackageReference Include="AngleSharp" Version="1.1.2" />
         <PackageReference Include="AutoMapper" Version="13.0.1" />
         <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="8.0.0"/>
-        <PackageReference Include="OpenAI" Version="2.0.0-beta.7" />
+        <PackageReference Include="OpenAI" Version="2.0.0-beta.8" />
         <PackageReference Include="Serilog.AspNetCore" Version="8.0.1" />
         <PackageReference Include="Serilog.Extensions.Hosting" Version="8.0.0" />
         <PackageReference Include="Serilog.Settings.Configuration" Version="8.0.2" />
@@ -25,11 +25,23 @@
     </ItemGroup>
 
     <ItemGroup>
+      <Folder Include="Orders\" />
       <Folder Include="Recipes\" />
     </ItemGroup>
 
     <ItemGroup>
       <None Remove="Scraper\recipe_scraper.py" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <_ContentIncludedByDefault Remove="Orders\56cf13d3\buffalo ranch dip.json" />
+      <_ContentIncludedByDefault Remove="Orders\56cf13d3\Order.json" />
+      <_ContentIncludedByDefault Remove="Orders\186fd35d\Order.json" />
+      <_ContentIncludedByDefault Remove="Orders\186fd35d\recipes\buffalo ranch dip.json" />
+      <_ContentIncludedByDefault Remove="Orders\6041cc56\Order.json" />
+      <_ContentIncludedByDefault Remove="Orders\6041cc56\recipes\buffalo ranch dip.json" />
+      <_ContentIncludedByDefault Remove="Orders\a0cc28bc\Order.json" />
+      <_ContentIncludedByDefault Remove="Orders\a0cc28bc\recipes\buffalo ranch dip.json" />
     </ItemGroup>
 
 </Project>

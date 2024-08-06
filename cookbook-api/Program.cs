@@ -34,9 +34,10 @@ builder.Services.AddAutoMapper(typeof(Program));
 
 builder.Services.AddPrompts(typeof(PromptBase).Assembly);
 builder.Services.AddSingleton<FileService>();
-builder.Services.AddScoped<RecipeService>();
-builder.Services.AddScoped<WebScraperService>();
-builder.Services.AddScoped<IModelService, ModelService>();
+builder.Services.AddTransient<RecipeService>();
+builder.Services.AddTransient<OrderService>();
+builder.Services.AddTransient<WebScraperService>();
+builder.Services.AddTransient<ILlmService, LlmService>();
 
 builder.Services.AddEndpointsApiExplorer();
 

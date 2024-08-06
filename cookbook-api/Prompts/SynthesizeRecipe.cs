@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Text.Json;
 using Cookbook.Factory.Models;
+using Cookbook.Factory.Services;
 
 namespace Cookbook.Factory.Prompts;
 
@@ -8,7 +9,7 @@ public class SynthesizeRecipePrompt : PromptBase
 {
     public override string Name => "Recipe Maker";
     public override string Description => "Synthesize a new recipe based on existing recipes and user preferences";
-    public override string Model => "gpt-4o-mini";
+    public override string Model => LlmModels.Gpt4Omini;
     public override string SystemPrompt =>
         """
         # Recipe Curation System Prompt

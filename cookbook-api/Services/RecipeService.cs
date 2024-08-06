@@ -4,35 +4,110 @@ using AutoMapper;
 using Cookbook.Factory.Models;
 using Cookbook.Factory.Prompts;
 using OpenAI.Assistants;
+using OpenAI.Chat;
 using Serilog;
 using ILogger = Serilog.ILogger;
 
 namespace Cookbook.Factory.Services;
 
-
 public class RecipeService(
-    IModelService modelService,
+    ILlmService llmService,
     WebScraperService webscraper,
-    IMapper mapper,
     FileService fileService,
+    IMapper mapper,
     RankRecipePrompt rankRecipePrompt,
     CleanRecipePrompt cleanRecipePrompt,
     SynthesizeRecipePrompt synthesizeRecipePrompt,
-    AnalyzeRecipePrompt analyzeRecipePrompt
+    AnalyzeRecipePrompt analyzeRecipePrompt,
+    ProcessOrderPrompt processOrderPrompt
 )
 {
     private readonly ILogger _log = Log.ForContext<RecipeService>();
-    private const int DontKeepScoreThreshold = 50;
-    private const int AcceptableScoreThreshold = 80;
-
+    private const int DontKeepScoreThreshold = 40;
+    private const int AcceptableScoreThreshold = 75;
+    private const int QualityScoreThreshold = 80;
     private const int MinRelevantRecipes = 5;
+    private const int MaxNewRecipeNameAttempts = 3;
     private const int MaxParallelTasks = MinRelevantRecipes;
     private readonly SemaphoreSlim _semaphore = new(MaxParallelTasks);
-
     private const string RecipeOutputDirectoryName = "Recipes";
-    private const string OrdersOutputDirectoryName = "Orders";
 
-    public async Task<List<Recipe>> GetRecipes(string query)
+    public async Task<List<Recipe>> GetRecipes(string requestedRecipeName, CookbookOrder cookbookOrder)
+    {
+        var recipeName = requestedRecipeName;
+        var recipes = await GetRecipes(recipeName);
+
+        var previousAttempts = new List<string>();
+
+        var acceptableScore = AcceptableScoreThreshold;
+
+        var attempts = 0;
+        while (recipes.Count == 0)
+        {
+            _log.Warning("No recipes found for '{RecipeName}'", recipeName);
+
+            if (++attempts > MaxNewRecipeNameAttempts)
+            {
+                _log.Warning("Aborting recipe searching for '{RecipeName}'", requestedRecipeName);
+                throw new Exception("No recipes found");
+            }
+            
+            // Lower the bar of acceptable for every attempt
+            acceptableScore -= 10;
+            
+            recipes = await GetRecipes(recipeName, acceptableScore, false);
+            
+            if (recipes.Count > 0)
+            {
+                break;
+            }
+            
+            // Request for new query to scrap with
+            recipeName = await GetReplacementRecipeName(requestedRecipeName, cookbookOrder, previousAttempts);
+
+            _log.Information("Attempting to find a replacement recipe name for '{RecipeName}' using '{NewRecipeName}'", requestedRecipeName, recipeName);
+            
+            recipes = await GetRecipes(recipeName, acceptableScore);
+
+            if (recipes.Count == 0)
+            {
+                previousAttempts.Add(recipeName);
+            }
+        }
+
+        return recipes;
+    }
+
+    private async Task<string> GetReplacementRecipeName(string recipeName, CookbookOrder cookbookOrder,
+        List<string> previousAttempts)
+    {
+        var messages = new List<ChatMessage>
+        {
+            new SystemChatMessage(processOrderPrompt.SystemPrompt),
+            new UserChatMessage(processOrderPrompt.GetUserPrompt(cookbookOrder)),
+            new SystemChatMessage(cookbookOrder.Recipes.ToString()),
+            new UserChatMessage(
+                $"""
+                 Thank you.
+                 The following recipe name unfortunately did not result in any recipes: {recipeName}.
+                 This may be because the recipe name is too unique or not well-known.
+                 Please provide an alternative recipe name that should result in a similar search.
+                 Respond with the alternative search result and nothing else.
+                 """)
+        };
+
+        foreach (var previousAttempt in previousAttempts)
+        {
+            messages.Add(new SystemChatMessage(previousAttempt));
+            messages.Add($"Sorry, that also didn't result in anything. Please try an alternative search query while respecting true to the original recipe of '{recipeName}'.");
+        }
+
+        var result = await llmService.GetCompletion(messages);
+
+        return result.ToString()!;
+    }
+
+    public async Task<List<Recipe>> GetRecipes(string query, int acceptableScore = AcceptableScoreThreshold, bool scrape = true)
     {
         // First, attempt to find and load existing JSON file
         var recipes = await fileService.LoadExistingData<Recipe>(RecipeOutputDirectoryName, query);
@@ -41,22 +116,22 @@ public class RecipeService(
         {
             _log.Information("Found {count} cached recipes for query '{query}'.", recipes.Count, query);
         }
-        else
+        else if (scrape)
         {
             // If no existing file found, proceed with web scraping
             recipes = mapper.Map<List<Recipe>>(await webscraper.ScrapeForRecipesAsync(query));
         }
 
-        var rankedRecipes = await RankRecipesAsync(recipes, query);
+        var rankedRecipes = await RankRecipesAsync(recipes, query, acceptableScore);
 
         // To save on llm cost, only bother cleaning those with a good enough score
-        var topRecipes = rankedRecipes.Where(r => r.RelevancyScore >= AcceptableScoreThreshold).ToList();
+        var topRecipes = rankedRecipes.Where(r => r.RelevancyScore >= acceptableScore).ToList();
 
         var cleanedRecipes = await CleanRecipesAsync(topRecipes.Where(r => !r.Cleaned).ToList());
         cleanedRecipes.AddRange(topRecipes.Where(r => r.Cleaned));
 
         var filteredOutRecipes = rankedRecipes
-            .Where(r => r.RelevancyScore < AcceptableScoreThreshold)
+            .Where(r => r.RelevancyScore < acceptableScore)
             // Eliminate anything below the relevancy threshold
             .Where(r => r.RelevancyScore >= DontKeepScoreThreshold)
             .ToList();
@@ -70,9 +145,9 @@ public class RecipeService(
         return cleanedRecipes.OrderByDescending(r => r.RelevancyScore).ToList();
     }
 
-    public async Task<RelevancyResult> RankRecipe(Recipe recipe, string query)
+    private async Task<RelevancyResult> RankRecipe(Recipe recipe, string query)
     {
-        var result = await modelService.CallFunction<RelevancyResult>(
+        var result = await llmService.CallFunction<RelevancyResult>(
             rankRecipePrompt.SystemPrompt,
             rankRecipePrompt.GetUserPrompt(recipe, query),
             rankRecipePrompt.GetFunction()
@@ -83,28 +158,32 @@ public class RecipeService(
         return result;
     }
 
-    private async Task<List<Recipe>> RankRecipesAsync(IReadOnlyCollection<Recipe> recipes, string query)
+    private async Task<List<Recipe>> RankRecipesAsync(IReadOnlyCollection<Recipe> recipes, string query, int acceptableScore = AcceptableScoreThreshold)
     {
         // Don't rank if there are already enough relevant recipes
-        if (recipes.Count(r => r.RelevancyScore >= AcceptableScoreThreshold) >= MinRelevantRecipes)
+        if (recipes.Count(r => r.RelevancyScore >= acceptableScore) >= MinRelevantRecipes)
         {
             return recipes.OrderByDescending(r => r.RelevancyScore).ToList();
         }
 
         var rankedRecipes = new ConcurrentQueue<Recipe>();
+        var relevantRecipeCount = new AtomicCounter();
+        var cts = new CancellationTokenSource();
 
         await Parallel.ForEachAsync(recipes,
-            new ParallelOptions { MaxDegreeOfParallelism = MaxParallelTasks },
+            new ParallelOptions { MaxDegreeOfParallelism = MaxParallelTasks, CancellationToken = cts.Token },
             async (recipe, ct) =>
             {
-                if (recipe.RelevancyScore >= AcceptableScoreThreshold)
+                if (ct.IsCancellationRequested) return;
+
+                if (recipe.RelevancyScore >= acceptableScore)
                 {
                     rankedRecipes.Enqueue(recipe);
-                    return;
-                }
+                    if (relevantRecipeCount.Increment() >= MinRelevantRecipes)
+                    {
+                        await cts.CancelAsync();
+                    }
 
-                if (rankedRecipes.Count(r => r.RelevancyScore >= AcceptableScoreThreshold) >= MinRelevantRecipes)
-                {
                     return;
                 }
 
@@ -117,6 +196,12 @@ public class RecipeService(
                     recipe.RelevancyReasoning = result.RelevancyReasoning;
 
                     rankedRecipes.Enqueue(recipe);
+
+                    if (recipe.RelevancyScore >= acceptableScore &&
+                        relevantRecipeCount.Increment() >= MinRelevantRecipes)
+                    {
+                        await cts.CancelAsync();
+                    }
                 }
                 finally
                 {
@@ -127,12 +212,17 @@ public class RecipeService(
         return rankedRecipes.OrderByDescending(r => r.RelevancyScore).ToList();
     }
 
-    private async Task<List<Recipe>> CleanRecipesAsync(IEnumerable<Recipe> recipes)
+    private async Task<List<Recipe>> CleanRecipesAsync(List<Recipe> recipes)
     {
+        if (!recipes.Any())
+        {
+            return new List<Recipe>();
+        }
+        
         var cleanedRecipes = new ConcurrentQueue<Recipe>();
 
         await Parallel.ForEachAsync(
-            recipes,
+            recipes.ToList(),
             new ParallelOptions { MaxDegreeOfParallelism = MaxParallelTasks },
             async (recipe, ct) =>
             {
@@ -159,7 +249,7 @@ public class RecipeService(
 
         try
         {
-            var cleanedRecipe = await modelService.CallFunction<Recipe>(
+            var cleanedRecipe = await llmService.CallFunction<Recipe>(
                 cleanRecipePrompt.SystemPrompt,
                 cleanRecipePrompt.GetUserPrompt(rawRecipe),
                 cleanRecipePrompt.GetFunction()
@@ -183,97 +273,98 @@ public class RecipeService(
         }
     }
 
-    private void WriteRecipeToOrderDir(string orderId, string recipeName, SynthesizedRecipe synthesizedRecipe)
-    {
-        var fullDir = Path.Combine(Path.Combine(OrdersOutputDirectoryName, orderId), "recipes");
-        fileService.WriteToFile(fullDir, recipeName, synthesizedRecipe);
-    }
-
-    public CookbookOrder ProcessOrder(CookbookOrder order)
-    {
-        order.OrderId = Guid.NewGuid().ToString()[..8];
-        var ordersDir = Path.Combine(OrdersOutputDirectoryName, order.OrderId);
-
-        fileService.WriteToFile(ordersDir, "Order", order);
-        
-        _log.Information("Order intake: {@Order}", order);
-
-        return order;
-    }
-
-    public async Task<SynthesizedRecipe> SynthesizeRecipe(List<Recipe> recipes, CookbookOrder order, string recipeName)
+    public async Task<(SynthesizedRecipe, List<SynthesizedRecipe>)> SynthesizeRecipe(List<Recipe> recipes,
+        CookbookOrder order, string recipeName)
     {
         SynthesizedRecipe synthesizedRecipe;
-        
-        var synthesizingAssistant = await modelService.CreateAssistant(synthesizeRecipePrompt);
-        var analyzeAssistant = await modelService.CreateAssistant(analyzeRecipePrompt);
+        List<SynthesizedRecipe> rejectedRecipes = new();
 
-        var synthesizingThread = await modelService.CreateThread();
-        var analyzeThread = await modelService.CreateThread();
+        var synthesizingAssistantId = await llmService.CreateAssistant(synthesizeRecipePrompt);
+        var analyzeAssistantId = await llmService.CreateAssistant(analyzeRecipePrompt);
+
+        var synthesizingThreadId = await llmService.CreateThread();
+        var analyzeThreadId = await llmService.CreateThread();
+
+        string synthesizeRunId = null!;
+        string analysisRunId = null!;
+
+        _log.Information("[{Recipe}] Synthesizing using recipes: {@Recipes}", recipeName, recipes);
 
         try
         {
-            await InitiateSynthesis(synthesizingThread, recipes, order);
-            
-            synthesizedRecipe =  await ProcessSynthesisUntilApproved(synthesizingThread, synthesizingAssistant, analyzeThread, analyzeAssistant, order, recipeName);
+            var synthesizePrompt = synthesizeRecipePrompt.GetUserPrompt(recipes, order);
+            await llmService.CreateMessage(synthesizingThreadId, synthesizePrompt);
 
-            _log.Information("Recipe synthesized: {@Recipe}", synthesizedRecipe);
+            synthesizeRunId = await llmService.CreateRun(synthesizingThreadId, synthesizingAssistantId, true);
 
-            WriteRecipeToOrderDir(order.OrderId!, recipeName, synthesizedRecipe);
+            var count = 0;
+
+            while (true)
+            {
+                count++;
+
+                synthesizedRecipe = await ProcessSynthesisRun(synthesizingThreadId, synthesizeRunId);
+
+                _log.Information("[{Recipe} - Run {count}] Synthesized recipe: {@SynthesizedRecipe}", recipeName, count,
+                    synthesizedRecipe);
+
+                if (count == 1)
+                {
+                    var analysisPrompt = analyzeRecipePrompt.GetUserPrompt(synthesizedRecipe, order, recipeName);
+                    await llmService.CreateMessage(analyzeThreadId, analysisPrompt);
+
+                    analysisRunId = await llmService.CreateRun(analyzeThreadId, analyzeAssistantId, true);
+                }
+                else
+                {
+                    await ProvideRevisedRecipe(analyzeThreadId, analysisRunId, synthesizedRecipe);
+                }
+
+                var analysisResult = await ProcessAnalysisRun(analyzeThreadId, analysisRunId);
+
+                _log.Information("[{Recipe} - Run {count}] Analysis result: {@Analysis}",
+                    recipeName, count, analysisResult);
+
+                synthesizedRecipe.AddAnalysisResult(analysisResult);
+
+                if (analysisResult.QualityScore >= QualityScoreThreshold)
+                {
+                    break;
+                }
+
+                rejectedRecipes.Add(synthesizedRecipe);
+
+                await ProvideAnalysisFeedback(synthesizingThreadId, synthesizeRunId, analysisResult);
+            }
+
+            _log.Information("[{Recipe}] Synthesized: {@Recipes}", recipeName, synthesizedRecipe);
         }
         catch (Exception ex)
         {
-            _log.Error(ex, "Error synthesizing recipe: {Message}", ex.Message);
+            _log.Error(ex,
+                "[{Recipe}] Error synthesizing recipe: {Message}. Synthesizer Assistant: {SynthesizerAssistant}, Thread: {SynthesizingThread}, Run: {SynthesizingRun}. Analyzer Assistant: {AnalyzerAssistant}, Thread: {AnalyzeThread}, Run: {AnalyzeRun}",
+                recipeName, ex.Message, synthesizingAssistantId, synthesizingThreadId, synthesizeRunId,
+                analyzeAssistantId, analyzeThreadId, analysisRunId);
             throw;
         }
         finally
         {
-            await CleanupResources(synthesizingAssistant, analyzeAssistant, synthesizingThread, analyzeThread);
+            await llmService.CancelRun(analyzeThreadId, analysisRunId);
+            await llmService.CancelRun(synthesizingThreadId, synthesizeRunId);
+            await llmService.DeleteAssistant(synthesizingAssistantId);
+            await llmService.DeleteAssistant(analyzeAssistantId);
+            await llmService.DeleteThread(synthesizingThreadId);
+            await llmService.DeleteThread(analyzeThreadId);
         }
 
-        return synthesizedRecipe;
+        return (synthesizedRecipe, rejectedRecipes);
     }
 
-    private async Task InitiateSynthesis(string synthesizingThread, List<Recipe> recipes, CookbookOrder order)
+    private async Task<SynthesizedRecipe> ProcessSynthesisRun(string threadId, string runId)
     {
-        var userPrompt = synthesizeRecipePrompt.GetUserPrompt(recipes, order);
-        await modelService.CreateMessage(synthesizingThread, userPrompt);
-    }
-
-    private async Task<SynthesizedRecipe> ProcessSynthesisUntilApproved(string synthesizingThread,
-        string synthesizingAssistant, string analyzeThread, string analyzeAssistant, CookbookOrder order,
-        string recipeName)
-    {
-        var count = 0;
-        
         while (true)
         {
-            count++;
-            
-            var synthesizedRecipe = await ProcessSynthesisRun(synthesizingThread, synthesizingAssistant);
-            
-            _log.Information("Synthesized recipe [{count}]: {@Recipe}", count, synthesizedRecipe);
-            
-            var analysisResult = await ProcessAnalysisRun(analyzeThread, analyzeAssistant, synthesizedRecipe, order, recipeName);
-
-            _log.Information("Analysis result [{verdict}]: {AnalysisResult}", analysisResult.Passes, analysisResult.Feedback);
-            
-            if (analysisResult.Passes)
-            {
-                return synthesizedRecipe;
-            }
-
-            await ProvideAnalysisFeedback(synthesizingThread, synthesizingAssistant, analysisResult);
-        }
-    }
-
-    private async Task<SynthesizedRecipe> ProcessSynthesisRun(string threadId, string assistantId)
-    {
-        var run = await modelService.CreateRun(threadId, assistantId, parallelToolCallsEnabled: false, toolConstraintRequired: true);
-
-        while (true)
-        {
-            var (isComplete, status) = await modelService.GetRun(threadId, run);
+            var (isComplete, status) = await llmService.GetRun(threadId, runId);
 
             if (isComplete)
             {
@@ -282,24 +373,19 @@ public class RecipeService(
 
             if (status == RunStatus.RequiresAction)
             {
-                return await modelService.GetRunAction<SynthesizedRecipe>(threadId, run, synthesizeRecipePrompt.GetFunction().Name);
+                return await llmService.GetRunAction<SynthesizedRecipe>(threadId, runId,
+                    synthesizeRecipePrompt.GetFunction().Name);
             }
 
             await Task.Delay(TimeSpan.FromSeconds(1));
         }
     }
 
-    private async Task<RecipeAnalysis> ProcessAnalysisRun(string threadId, string assistantId, SynthesizedRecipe recipe,
-        CookbookOrder order, string recipeName)
+    private async Task<RecipeAnalysis> ProcessAnalysisRun(string threadId, string runId)
     {
-        var userPrompt = analyzeRecipePrompt.GetUserPrompt(recipe, order, recipeName);
-        await modelService.CreateMessage(threadId, userPrompt);
-
-        var run = await modelService.CreateRun(threadId, assistantId, parallelToolCallsEnabled: false, toolConstraintRequired: true);
-
         while (true)
         {
-            var (isComplete, status) = await modelService.GetRun(threadId, run);
+            var (isComplete, status) = await llmService.GetRun(threadId, runId);
 
             if (isComplete)
             {
@@ -308,33 +394,39 @@ public class RecipeService(
 
             if (status == RunStatus.RequiresAction)
             {
-                return await modelService.GetRunAction<RecipeAnalysis>(threadId, run, analyzeRecipePrompt.GetFunction().Name);
+                return await llmService.GetRunAction<RecipeAnalysis>(threadId, runId,
+                    analyzeRecipePrompt.GetFunction().Name);
             }
 
             await Task.Delay(TimeSpan.FromSeconds(1));
         }
     }
 
-    private async Task ProvideAnalysisFeedback(string threadId, string assistantId, RecipeAnalysis analysis)
+    private async Task ProvideRevisedRecipe(string threadId, string runId, SynthesizedRecipe recipe)
     {
-        var run = await modelService.CreateRun(threadId, assistantId, parallelToolCallsEnabled: false, toolConstraintRequired: true);
-        var toolCallId = await modelService.GetToolCallId(threadId, run, synthesizeRecipePrompt.GetFunction().Name);
+        var toolCallId = await llmService.GetToolCallId(threadId, runId, analyzeRecipePrompt.GetFunction().Name);
 
-        await modelService.SubmitToolOutputsToRun(
+        await llmService.SubmitToolOutputsToRun(
             threadId,
-            run,
+            runId,
+            new List<(string, string)>
+            {
+                (toolCallId, JsonSerializer.Serialize(recipe))
+            }
+        );
+    }
+
+    private async Task ProvideAnalysisFeedback(string threadId, string runId, RecipeAnalysis analysis)
+    {
+        var toolCallId = await llmService.GetToolCallId(threadId, runId, synthesizeRecipePrompt.GetFunction().Name);
+
+        await llmService.SubmitToolOutputsToRun(
+            threadId,
+            runId,
             new List<(string, string)>
             {
                 (toolCallId, JsonSerializer.Serialize(analysis))
             }
         );
-    }
-
-    private async Task CleanupResources(string synthesizingAssistant, string analyzeAssistant, string synthesizingThread, string analyzeThread)
-    {
-        await modelService.DeleteAssistant(synthesizingAssistant);
-        await modelService.DeleteAssistant(analyzeAssistant);
-        await modelService.DeleteThread(synthesizingThread);
-        await modelService.DeleteThread(analyzeThread);
     }
 }
