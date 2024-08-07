@@ -6,16 +6,21 @@ using ILogger = Serilog.ILogger;
 
 namespace Cookbook.Factory.Services;
 
+public class OrderConfig : IConfig
+{
+    public int MaxParallelTasks { get; init; } = 1;
+    public int MaxSampleRecipes { get; init; } = 3;
+    public string OutputDirectory { get; init; } = "Orders";
+}
+
 public class OrderService(
+    OrderConfig config,
     ILlmService llmService,
     FileService fileService,
     RecipeService recipeService,
     ProcessOrderPrompt processOrderPrompt
 )
 {
-    private const string OrdersOutputDirectoryName = "Orders";
-    private const int MaxParallelTasks = 1;
-    private const int MaxSampleRecipes = 3;
     private readonly ILogger _log = Log.ForContext<OrderService>();
 
     public async Task<CookbookOrder> ProcessOrderSubmission(CookbookOrderSubmission submission)
@@ -25,7 +30,7 @@ public class OrderService(
             processOrderPrompt.GetUserPrompt(submission),
             processOrderPrompt.GetFunction()
         );
-        
+
         var order = new CookbookOrder(submission, result.Recipes)
         {
             Email = submission.Email,
@@ -44,12 +49,12 @@ public class OrderService(
     public async Task<CookbookOrder> GenerateCookbookAsync(CookbookOrder order, bool isSample = false)
     {
         var completedRecipes = new ConcurrentQueue<SynthesizedRecipe>();
-        var semaphore = new SemaphoreSlim(Math.Min(MaxParallelTasks, MaxSampleRecipes));
+        var semaphore = new SemaphoreSlim(Math.Min(config.MaxParallelTasks, config.MaxSampleRecipes));
         var processingTasks = new List<Task>();
 
         foreach (var recipeName in order.Recipes)
         {
-            if (isSample && completedRecipes.Count >= MaxSampleRecipes)
+            if (isSample && completedRecipes.Count >= config.MaxSampleRecipes)
             {
                 _log.Information("Sample size reached, stopping processing");
                 break;
@@ -57,7 +62,7 @@ public class OrderService(
 
             processingTasks.Add(ProcessRecipe(recipeName));
 
-            if (processingTasks.Count >= MaxParallelTasks)
+            if (processingTasks.Count >= config.MaxParallelTasks)
             {
                 await Task.WhenAny(processingTasks);
                 processingTasks.RemoveAll(t => t.IsCompleted);
@@ -76,13 +81,22 @@ public class OrderService(
             await semaphore.WaitAsync();
             try
             {
-                if (isSample && completedRecipes.Count >= MaxSampleRecipes)
+                if (isSample && completedRecipes.Count >= config.MaxSampleRecipes)
                 {
                     _log.Information("Sample size reached, stopping processing");
                     return;
                 }
 
-                var recipes = await recipeService.GetRecipes(recipeName, order);
+                List<Recipe> recipes;
+                try
+                {
+                    recipes = await recipeService.GetRecipes(recipeName, order);
+                }
+                catch (Exception ex)
+                {
+                    _log.Error(ex, "Skipping recipe {RecipeName} due to no recipes found", recipeName);
+                    return;
+                }
 
                 var (result, rejects) = await recipeService.SynthesizeRecipe(recipes, order, recipeName);
 
@@ -103,21 +117,21 @@ public class OrderService(
 
     private void CreateOrderDirectory(CookbookOrder order)
         => fileService.WriteToFile(
-            Path.Combine(OrdersOutputDirectoryName, order.OrderId),
+            Path.Combine(config.OutputDirectory, order.OrderId),
             "Order",
             order
         );
 
     private void WriteRejectToOrderDir(string orderId, string recipeName, SynthesizedRecipe recipe)
         => fileService.WriteToFile(
-            Path.Combine(OrdersOutputDirectoryName, orderId, "recipes", "rejects"),
+            Path.Combine(config.OutputDirectory, orderId, "recipes", "rejects"),
             recipeName,
             recipe
         );
 
     private void WriteRecipeToOrderDir(string orderId, string recipeName, SynthesizedRecipe recipe)
         => fileService.WriteToFile(
-            Path.Combine(OrdersOutputDirectoryName, orderId, "recipes"),
+            Path.Combine(config.OutputDirectory, orderId, "recipes"),
             recipeName,
             recipe
         );

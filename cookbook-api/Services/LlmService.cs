@@ -1,5 +1,3 @@
-using System.ClientModel;
-using System.Collections;
 using AutoMapper;
 using Cookbook.Factory.Prompts;
 using OpenAI;
@@ -9,6 +7,11 @@ using Serilog;
 using ILogger = Serilog.ILogger;
 
 namespace Cookbook.Factory.Services;
+
+public class OpenAiConfig : IConfig
+{
+    public string ModelName { get; init; } = LlmModels.Gpt4Omini;
+}
 
 public static class LlmModels
 {
@@ -36,18 +39,16 @@ public interface ILlmService
     Task<string> GetToolCallId(string threadId, string runId, string functionName);
 }
 
-public class LlmService(OpenAIClient client, IMapper mapper, IConfiguration configuration) : ILlmService
+public class LlmService(OpenAIClient client, IMapper mapper, OpenAiConfig config) : ILlmService
 {
     private readonly ILogger _log = Log.ForContext<LlmService>();
-    private readonly string _defaultModel = configuration["OpenAI:ModelName"] ?? LlmModels.Gpt4Omini;
-
     public async Task<string> CreateAssistant(PromptBase prompt)
     {
         try
         {
             var assistantClient = client.GetAssistantClient();
             var functionToolDefinition = mapper.Map<FunctionToolDefinition>(prompt.GetFunction());
-            var response = await assistantClient.CreateAssistantAsync(configuration["OpenAI:ModelName"] ?? prompt.Model,
+            var response = await assistantClient.CreateAssistantAsync(prompt.Model ?? config.ModelName,
                 new AssistantCreationOptions
                 {
                     Name = prompt.Name,
@@ -232,7 +233,7 @@ public class LlmService(OpenAIClient client, IMapper mapper, IConfiguration conf
 
     public async Task<ChatCompletion> GetCompletion(IEnumerable<ChatMessage> messages, ChatCompletionOptions? options = null)
     {
-        var chatClient = client.GetChatClient(_defaultModel);
+        var chatClient = client.GetChatClient(config.ModelName);
 
         try
         {

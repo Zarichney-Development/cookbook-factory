@@ -1,6 +1,8 @@
+using System.ComponentModel.DataAnnotations;
 using System.Reflection;
 using System.Text;
 using System.Text.Json;
+using Microsoft.IdentityModel.Protocols.Configuration;
 
 namespace Cookbook.Factory.Services;
 
@@ -41,7 +43,7 @@ public static class ObjectExtensions
         if (IsNullOrEmpty(value)) return;
 
         var propertyName = Utils.SplitCamelCase(prop.Name);
-        
+
         sb.Append($"{propertyName}: ");
 
         if (value is IEnumerable<object> list)
@@ -71,3 +73,62 @@ public class AtomicCounter
     public int Value => _value;
 }
 
+public interface IConfig;
+
+public static class ConfigurationExtensions
+{
+    private const string PlaceholderValue = "recommended to set in app secrets";
+
+    public static void AddConfigurations(this IServiceCollection services, IConfiguration configuration)
+    {
+        var configTypes = Assembly.GetExecutingAssembly()
+            .GetTypes()
+            .Where(t => typeof(IConfig).IsAssignableFrom(t) && !t.IsInterface && !t.IsAbstract);
+
+        foreach (var configType in configTypes)
+        {
+            var sectionName = configType.Name;
+            var config = configuration.GetSection(sectionName).Get(configType);
+
+            if (config == null)
+            {
+                throw new InvalidOperationException($"Configuration section '{sectionName}' is missing or invalid.");
+            }
+
+            ValidateAndReplaceProperties(config, sectionName);
+
+            services.AddSingleton(configType, config);
+        }
+    }
+
+    public static T GetConfig<T>(this IServiceCollection services) where T : class, IConfig
+    {
+        return services.BuildServiceProvider().GetRequiredService<T>();
+    }
+
+    private static void ValidateAndReplaceProperties(object config, string sectionName)
+    {
+        var properties = config.GetType().GetProperties();
+
+        foreach (var property in properties)
+        {
+            var value = property.GetValue(config);
+
+            if (property.GetCustomAttribute<RequiredAttribute>() == null || value is not (null or PlaceholderValue))
+            {
+                continue;
+            }
+
+            var exceptionMessage = $"Required property '{property.Name}' in configuration section '{sectionName}'";
+
+            exceptionMessage += value switch
+            {
+                null => " is missing.",
+                PlaceholderValue => " has a placeholder value. Please set it in your user secrets.",
+                _ => string.Empty
+            };
+
+            throw new InvalidConfigurationException(exceptionMessage);
+        }
+    }
+}

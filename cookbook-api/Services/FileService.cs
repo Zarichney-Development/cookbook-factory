@@ -7,20 +7,17 @@ using ILogger = Serilog.ILogger;
 
 namespace Cookbook.Factory.Services;
 
-public class WriteOperation(string directory, string filename, string data, string extension)
-{
-    public string Directory { get; } = directory;
-    public string Filename { get; } = filename;
-    public string Data { get; } = data;
-    public string Extension { get; } = extension;
-}
-
 public class FileService
 {
     private readonly ILogger _log = Log.ForContext<FileService>();
     private readonly ConcurrentQueue<WriteOperation> _writeQueue = new();
     private readonly Task _processQueueTask;
     private readonly CancellationTokenSource _cancellationTokenSource = new();
+    private readonly JsonSerializerOptions _jsonSerializerOptions = new()
+    {
+        WriteIndented = true,
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+    };
 
     public FileService()
     {
@@ -36,21 +33,9 @@ public class FileService
 
     public void WriteToFile(string directory, string filename, object data, string extension = "json")
     {
-        string content;
-        if (extension == "json")
-        {
-            content = JsonSerializer.Serialize(data, new JsonSerializerOptions
-            {
-                WriteIndented = true,
-                Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
-            });
-        }
-        else
-        {
-            content = data.ToString()!
-                ;
-        }
-        
+        var content = extension == "json" 
+            ? JsonSerializer.Serialize(data, _jsonSerializerOptions)
+            : data.ToString()!;
         
         _writeQueue.Enqueue(new WriteOperation(directory, filename, content, extension));
     }
@@ -106,7 +91,7 @@ public class FileService
 
         try
         {
-            data = JsonSerializer.Deserialize<List<T>>(await File.ReadAllTextAsync(filePath)) ?? new List<T>();
+            data = JsonSerializer.Deserialize<List<T>>(await File.ReadAllTextAsync(filePath)) ?? [];
         }
         catch (Exception ex)
         {
@@ -115,4 +100,12 @@ public class FileService
 
         return data;
     }
+}
+
+public class WriteOperation(string directory, string filename, string data, string extension)
+{
+    public string Directory { get; } = directory;
+    public string Filename { get; } = filename;
+    public string Data { get; } = data;
+    public string Extension { get; } = extension;
 }

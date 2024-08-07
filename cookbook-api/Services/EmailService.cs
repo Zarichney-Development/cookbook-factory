@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using HandlebarsDotNet;
 using Microsoft.Graph;
 using Microsoft.Graph.Models;
@@ -6,6 +7,19 @@ using ILogger = Serilog.ILogger;
 using SendMailPostRequestBody = Microsoft.Graph.Users.Item.SendMail.SendMailPostRequestBody;
 
 namespace Cookbook.Factory.Services;
+
+public class EmailConfig : IConfig
+{
+    [Required]
+    public required string AzureTenantId { get; init; }
+    [Required]
+    public required string AzureAppId { get; init; }
+    [Required]
+    public required string AzureAppSecret { get; init; }
+    [Required]
+    public required string FromEmail { get; init; }
+    public string TemplateDirectory { get; init; } = "EmailTemplates";
+}
 
 public interface IEmailService
 {

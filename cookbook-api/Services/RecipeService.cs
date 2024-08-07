@@ -10,7 +10,19 @@ using ILogger = Serilog.ILogger;
 
 namespace Cookbook.Factory.Services;
 
+public class RecipeConfig : IConfig
+{
+    public int DontKeepScoreThreshold { get; init; } = 40;
+    public int AcceptableScoreThreshold { get; init; } = 75;
+    public int QualityScoreThreshold { get; init; } = 80;
+    public int MinRelevantRecipes { get; init; } = 5;
+    public int MaxNewRecipeNameAttempts { get; init; } = 3;
+    public int MaxParallelTasks { get; init; } = 5; // Same as MinRelevantRecipes
+    public string OutputDirectory { get; init; } = "Recipes";
+}
+
 public class RecipeService(
+    RecipeConfig config,
     ILlmService llmService,
     WebScraperService webscraper,
     FileService fileService,
@@ -23,15 +35,9 @@ public class RecipeService(
 )
 {
     private readonly ILogger _log = Log.ForContext<RecipeService>();
-    private const int DontKeepScoreThreshold = 40;
-    private const int AcceptableScoreThreshold = 75;
-    private const int QualityScoreThreshold = 80;
-    private const int MinRelevantRecipes = 5;
-    private const int MaxNewRecipeNameAttempts = 3;
-    private const int MaxParallelTasks = MinRelevantRecipes;
-    private readonly SemaphoreSlim _semaphore = new(MaxParallelTasks);
-    private const string RecipeOutputDirectoryName = "Recipes";
 
+    private readonly SemaphoreSlim _semaphore = new(config.MaxParallelTasks);
+    
     public async Task<List<Recipe>> GetRecipes(string requestedRecipeName, CookbookOrder cookbookOrder)
     {
         var recipeName = requestedRecipeName;
@@ -39,14 +45,14 @@ public class RecipeService(
 
         var previousAttempts = new List<string>();
 
-        var acceptableScore = AcceptableScoreThreshold;
+        var acceptableScore = config.AcceptableScoreThreshold;
 
         var attempts = 0;
         while (recipes.Count == 0)
         {
             _log.Warning("No recipes found for '{RecipeName}'", recipeName);
 
-            if (++attempts > MaxNewRecipeNameAttempts)
+            if (++attempts > config.MaxNewRecipeNameAttempts)
             {
                 _log.Warning("Aborting recipe searching for '{RecipeName}'", requestedRecipeName);
                 throw new Exception("No recipes found");
@@ -107,10 +113,12 @@ public class RecipeService(
         return result.ToString()!;
     }
 
-    public async Task<List<Recipe>> GetRecipes(string query, int acceptableScore = AcceptableScoreThreshold, bool scrape = true)
+    public async Task<List<Recipe>> GetRecipes(string query, int? acceptableScore = null, bool scrape = true)
     {
+        acceptableScore ??= config.AcceptableScoreThreshold;
+        
         // First, attempt to find and load existing JSON file
-        var recipes = await fileService.LoadExistingData<Recipe>(RecipeOutputDirectoryName, query);
+        var recipes = await fileService.LoadExistingData<Recipe>(config.OutputDirectory, query);
 
         if (recipes.Any())
         {
@@ -133,17 +141,18 @@ public class RecipeService(
         var filteredOutRecipes = rankedRecipes
             .Where(r => r.RelevancyScore < acceptableScore)
             // Eliminate anything below the relevancy threshold
-            .Where(r => r.RelevancyScore >= DontKeepScoreThreshold)
+            .Where(r => r.RelevancyScore >= config.DontKeepScoreThreshold)
             .ToList();
 
         // Not sure how much value these lesser scores can be, but might as well store them, except for the irrelevant ones
         var allRecipes = cleanedRecipes.Concat(filteredOutRecipes).ToList();
 
-        fileService.WriteToFile(RecipeOutputDirectoryName, query,
+        fileService.WriteToFile(config.OutputDirectory, query,
             allRecipes.OrderByDescending(r => r.RelevancyScore));
 
         return cleanedRecipes.OrderByDescending(r => r.RelevancyScore).ToList();
     }
+
 
     private async Task<RelevancyResult> RankRecipe(Recipe recipe, string query)
     {
@@ -158,10 +167,12 @@ public class RecipeService(
         return result;
     }
 
-    private async Task<List<Recipe>> RankRecipesAsync(IReadOnlyCollection<Recipe> recipes, string query, int acceptableScore = AcceptableScoreThreshold)
+    private async Task<List<Recipe>> RankRecipesAsync(IReadOnlyCollection<Recipe> recipes, string query, int? acceptableScore = null)
     {
+        acceptableScore ??= config.AcceptableScoreThreshold;
+        
         // Don't rank if there are already enough relevant recipes
-        if (recipes.Count(r => r.RelevancyScore >= acceptableScore) >= MinRelevantRecipes)
+        if (recipes.Count(r => r.RelevancyScore >= acceptableScore) >= config.MinRelevantRecipes)
         {
             return recipes.OrderByDescending(r => r.RelevancyScore).ToList();
         }
@@ -171,7 +182,7 @@ public class RecipeService(
         var cts = new CancellationTokenSource();
 
         await Parallel.ForEachAsync(recipes,
-            new ParallelOptions { MaxDegreeOfParallelism = MaxParallelTasks, CancellationToken = cts.Token },
+            new ParallelOptions { MaxDegreeOfParallelism = config.MaxParallelTasks, CancellationToken = cts.Token },
             async (recipe, ct) =>
             {
                 if (ct.IsCancellationRequested) return;
@@ -179,7 +190,7 @@ public class RecipeService(
                 if (recipe.RelevancyScore >= acceptableScore)
                 {
                     rankedRecipes.Enqueue(recipe);
-                    if (relevantRecipeCount.Increment() >= MinRelevantRecipes)
+                    if (relevantRecipeCount.Increment() >=config.MinRelevantRecipes)
                     {
                         await cts.CancelAsync();
                     }
@@ -198,7 +209,7 @@ public class RecipeService(
                     rankedRecipes.Enqueue(recipe);
 
                     if (recipe.RelevancyScore >= acceptableScore &&
-                        relevantRecipeCount.Increment() >= MinRelevantRecipes)
+                        relevantRecipeCount.Increment() >= config.MinRelevantRecipes)
                     {
                         await cts.CancelAsync();
                     }
@@ -223,7 +234,7 @@ public class RecipeService(
 
         await Parallel.ForEachAsync(
             recipes.ToList(),
-            new ParallelOptions { MaxDegreeOfParallelism = MaxParallelTasks },
+            new ParallelOptions { MaxDegreeOfParallelism = config.MaxParallelTasks },
             async (recipe, ct) =>
             {
                 await _semaphore.WaitAsync(ct);
@@ -327,7 +338,7 @@ public class RecipeService(
 
                 synthesizedRecipe.AddAnalysisResult(analysisResult);
 
-                if (analysisResult.QualityScore >= QualityScoreThreshold)
+                if (analysisResult.QualityScore >= config.QualityScoreThreshold)
                 {
                     break;
                 }

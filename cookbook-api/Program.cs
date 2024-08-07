@@ -4,25 +4,34 @@ using Cookbook.Factory.Services;
 using Cookbook.Factory.Middleware;
 using Cookbook.Factory.Prompts;
 using Microsoft.Graph;
+using Microsoft.IdentityModel.Protocols.Configuration;
 using OpenAI;
 using Microsoft.OpenApi.Models;
 using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
 
-Log.Logger = new LoggerConfiguration()
+builder.Configuration.AddJsonFile("appsettings.json");
+builder.Configuration.AddUserSecrets<Program>();
+
+var seqUrl = builder.Configuration["SeqUrl"];
+
+var logger = new LoggerConfiguration()
     .WriteTo.Console()
-    .Enrich.FromLogContext()
-    .WriteTo.Seq("http://localhost:5341/")
-    .CreateLogger();
+    .Enrich.FromLogContext();
+
+if (!string.IsNullOrEmpty(seqUrl))
+{
+    logger = logger.WriteTo.Seq(seqUrl);
+}
+
+Log.Logger = logger.CreateLogger();
 
 builder.Host.UseSerilog();
 
 builder.Services.AddSingleton(Log.Logger);
 
 Log.Information("Starting Cookbook Factory web application");
-
-builder.Configuration.AddJsonFile("appsettings.json");
 
 builder.Services.AddHttpContextAccessor();
 
@@ -31,11 +40,15 @@ builder.Services.AddControllers()
 
 builder.Services.AddAutoMapper(typeof(Program));
 
-var emailConfig = builder.Configuration.GetSection("EmailConfig").Get<EmailConfig>()!;
-builder.Services.AddSingleton(emailConfig);
+builder.Services.AddConfigurations(builder.Configuration);
+
+var emailConfig = builder.Services.GetConfig<EmailConfig>();
 
 var graphClient = new GraphServiceClient(new ClientSecretCredential(
-    emailConfig.AzureTenantId, emailConfig.AzureAppId, emailConfig.AzureAppSecret, new TokenCredentialOptions
+    emailConfig.AzureTenantId,
+    emailConfig.AzureAppId,
+    emailConfig.AzureAppSecret,
+    new TokenCredentialOptions
     {
         AuthorityHost = AzureAuthorityHosts.AzurePublicCloud
     }), new[] { "https://graph.microsoft.com/.default" });
@@ -52,8 +65,8 @@ builder.Services.AddTransient<ILlmService, LlmService>();
 
 builder.Services.AddEndpointsApiExplorer();
 
-var apiKey = builder.Configuration["OPENAI_API_KEY"]
-             ?? throw new InvalidOperationException("Missing required configuration for Azure/OpenAI API key.");
+var apiKey = builder.Configuration["OpenAiConfig:ApiKey"]
+             ?? throw new InvalidConfigurationException("Missing required configuration for Azure/OpenAI API key.");
 
 builder.Services.AddSingleton(new OpenAIClient(apiKey));
 
@@ -129,13 +142,4 @@ public static class ServiceCollectionExtensions
 
         return services;
     }
-}
-
-public class EmailConfig
-{
-    public required string AzureTenantId { get; set; }
-    public required string AzureAppId { get; set; }
-    public required string AzureAppSecret { get; set; }
-    public required string FromEmail { get; set; }
-    public required string TemplateDirectory { get; set; }
 }

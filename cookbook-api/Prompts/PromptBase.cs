@@ -8,7 +8,7 @@ public abstract class PromptBase
     public abstract string Name { get; }
     public abstract string Description { get; }
     public abstract string SystemPrompt { get; }
-    public abstract string Model { get; }
+    public abstract string? Model { get; }
     public abstract FunctionDefinition GetFunction();
 }
 
