@@ -47,7 +47,7 @@ public class ApiController(RecipeService recipeService, OrderService orderServic
 
         var order = await orderService.ProcessOrderSubmission(submission);
 
-        order = await orderService.GenerateCookbookAsync(order, true);
+        await orderService.GenerateCookbookAsync(order, true);
 
         return Ok(order);
     }

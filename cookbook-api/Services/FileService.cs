@@ -66,7 +66,7 @@ public class FileService
 
             var fileNamePath = Path.Combine(operation.Directory, $"{SanitizeFileName(operation.Filename)}.{operation.Extension}");
 
-            await using var fileStream = new FileStream(fileNamePath, FileMode.Create, FileAccess.Write, FileShare.None,
+            await using var fileStream = new FileStream(fileNamePath, FileMode.Create, FileAccess.Write, FileShare.ReadWrite,
                 4096, FileOptions.Asynchronous);
             await using var streamWriter = new StreamWriter(fileStream, Encoding.UTF8);
             await streamWriter.WriteAsync(operation.Data);

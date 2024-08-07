@@ -3,7 +3,8 @@ using Cookbook.Factory.Prompts;
 using OpenAI;
 using OpenAI.Assistants;
 using OpenAI.Chat;
-using Serilog;
+using Polly;
+using Polly.Retry;
 using ILogger = Serilog.ILogger;
 
 namespace Cookbook.Factory.Services;
@@ -11,6 +12,7 @@ namespace Cookbook.Factory.Services;
 public class OpenAiConfig : IConfig
 {
     public string ModelName { get; init; } = LlmModels.Gpt4Omini;
+    public int RetryAttempts { get; init; } = 3;
 }
 
 public static class LlmModels
@@ -41,7 +43,19 @@ public interface ILlmService
 
 public class LlmService(OpenAIClient client, IMapper mapper, OpenAiConfig config) : ILlmService
 {
-    private readonly ILogger _log = Log.ForContext<LlmService>();
+    private static readonly ILogger Log = Serilog.Log.ForContext<LlmService>();
+
+    private readonly AsyncRetryPolicy _retryPolicy = Policy
+        .Handle<Exception>()
+        .WaitAndRetryAsync(
+            retryCount: config.RetryAttempts,
+            sleepDurationProvider: _ => TimeSpan.FromSeconds(1),
+            onRetry: (exception, _, retryCount, context) =>
+            {
+                Log.Warning(exception, "Attempt {retryCount}: Retrying due to {exception}. Retry Context: {@Context}", retryCount, exception.Message, context);
+            }
+        );
+
     public async Task<string> CreateAssistant(PromptBase prompt)
     {
         try
@@ -60,7 +74,7 @@ public class LlmService(OpenAIClient client, IMapper mapper, OpenAiConfig config
         }
         catch (Exception e)
         {
-            _log.Error(e, "Error occurred while creating assistant");
+            Log.Error(e, "Error occurred while creating assistant");
             throw;
         }
     }
@@ -75,7 +89,7 @@ public class LlmService(OpenAIClient client, IMapper mapper, OpenAiConfig config
         }
         catch (Exception e)
         {
-            _log.Error(e, "Error occurred while creating thread");
+            Log.Error(e, "Error occurred while creating thread");
             throw;
         }
     }
@@ -93,7 +107,7 @@ public class LlmService(OpenAIClient client, IMapper mapper, OpenAiConfig config
         }
         catch (Exception e)
         {
-            _log.Error(e, "Error occurred while creating message");
+            Log.Error(e, "Error occurred while creating message");
             throw;
         }
     }
@@ -116,7 +130,7 @@ public class LlmService(OpenAIClient client, IMapper mapper, OpenAiConfig config
         }
         catch (Exception e)
         {
-            _log.Error(e, "Error occurred while creating run for thread {threadId}, assistant {assistantId}", threadId,
+            Log.Error(e, "Error occurred while creating run for thread {threadId}, assistant {assistantId}", threadId,
                 assistantId);
             throw;
         }
@@ -133,14 +147,14 @@ public class LlmService(OpenAIClient client, IMapper mapper, OpenAiConfig config
         }
         catch (Exception e)
         {
-            _log.Error(e, "Error occurred while getting run {runId} for thread {threadId}", runId, threadId);
+            Log.Error(e, "Error occurred while getting run {runId} for thread {threadId}", runId, threadId);
             throw;
         }
     }
 
     public async Task<string> CancelRun(string threadId, string runId)
     {
-        _log.Information("Cancelling run: {runId} for thread: {threadId}", runId, threadId);
+        Log.Information("Cancelling run: {runId} for thread: {threadId}", runId, threadId);
         try
         {
             var assistantClient = client.GetAssistantClient();
@@ -160,7 +174,7 @@ public class LlmService(OpenAIClient client, IMapper mapper, OpenAiConfig config
         }
         catch (Exception e)
         {
-            _log.Error(e, "Error occurred while cancelling run {runId} for thread {threadId}", runId, threadId);
+            Log.Error(e, "Error occurred while cancelling run {runId} for thread {threadId}", runId, threadId);
             return "Failed to cancel run.";
         }
     }
@@ -176,7 +190,7 @@ public class LlmService(OpenAIClient client, IMapper mapper, OpenAiConfig config
         }
         catch (Exception e)
         {
-            _log.Error(e, "Error occurred while submitting tool outputs for run {runId}, thread {threadId}", runId,
+            Log.Error(e, "Error occurred while submitting tool outputs for run {runId}, thread {threadId}", runId,
                 threadId);
             throw;
         }
@@ -191,7 +205,7 @@ public class LlmService(OpenAIClient client, IMapper mapper, OpenAiConfig config
         }
         catch (Exception e)
         {
-            _log.Error(e, "Error occurred while deleting assistant {assistantId}", assistantId);
+            Log.Error(e, "Error occurred while deleting assistant {assistantId}", assistantId);
         }
     }
 
@@ -204,13 +218,13 @@ public class LlmService(OpenAIClient client, IMapper mapper, OpenAiConfig config
         }
         catch (Exception e)
         {
-            _log.Error(e, "Error occurred while deleting thread {threadId}", threadId);
+            Log.Error(e, "Error occurred while deleting thread {threadId}", threadId);
         }
     }
 
     public async Task<T> CallFunction<T>(string systemPrompt, string userPrompt, FunctionDefinition function)
     {
-        _log.Information(
+        Log.Information(
             "Getting response from model. System prompt: {systemPrompt}, User prompt: {userPrompt}, Function name: {functionName}, Function description: {functionDescription}, Function parameters: {functionParameters}",
             systemPrompt, userPrompt, function.Name, function.Description, function.Parameters);
 
@@ -219,8 +233,8 @@ public class LlmService(OpenAIClient client, IMapper mapper, OpenAiConfig config
             new SystemChatMessage(systemPrompt),
             new UserChatMessage(userPrompt)
         };
-
-        return await CallFunction<T>(function, messages);
+        
+        return await _retryPolicy.ExecuteAsync(async () => await CallFunction<T>(function, messages));
     }
 
 
@@ -230,21 +244,6 @@ public class LlmService(OpenAIClient client, IMapper mapper, OpenAiConfig config
             functionDescription: function.Description,
             functionParameters: BinaryData.FromString(function.Parameters)
         ));
-
-    public async Task<ChatCompletion> GetCompletion(IEnumerable<ChatMessage> messages, ChatCompletionOptions? options = null)
-    {
-        var chatClient = client.GetChatClient(config.ModelName);
-
-        try
-        {
-            return await chatClient.CompleteChatAsync(messages, options);
-        }
-        catch (Exception e)
-        {
-            _log.Error(e, "Error occurred while getting response from model");
-            throw;
-        }
-    }
 
     private async Task<T> CallFunction<T>(IEnumerable<ChatMessage> messages, ChatTool functionTool)
     {
@@ -262,7 +261,7 @@ public class LlmService(OpenAIClient client, IMapper mapper, OpenAiConfig config
         {
             if (toolCall.FunctionName != functionTool.FunctionName)
             {
-                _log.Error("Expected function name {functionName} but got {toolCall.FunctionName}",
+                Log.Error("Expected function name {functionName} but got {toolCall.FunctionName}",
                     functionTool.FunctionName, toolCall.FunctionName);
                 continue;
             }
@@ -278,7 +277,7 @@ public class LlmService(OpenAIClient client, IMapper mapper, OpenAiConfig config
             }
             catch (Exception e)
             {
-                _log.Error(e,
+                Log.Error(e,
                     "Failed to deserialize tool call arguments to type {type}, attempted to deserialize {FunctionArguments}",
                     typeof(T).Name, toolCall.FunctionArguments);
                 throw;
@@ -286,6 +285,25 @@ public class LlmService(OpenAIClient client, IMapper mapper, OpenAiConfig config
         }
 
         throw new Exception("Failed to get a valid response from the model.");
+    }
+
+    public async Task<ChatCompletion> GetCompletion(IEnumerable<ChatMessage> messages,
+        ChatCompletionOptions? options = null)
+    {
+        return await _retryPolicy.ExecuteAsync(async () =>
+        {
+            var chatClient = client.GetChatClient(config.ModelName);
+        
+            try
+            {
+                return await chatClient.CompleteChatAsync(messages, options);
+            }
+            catch (Exception e)
+            {
+                Log.Error(e, "Error occurred while getting response from model");
+                throw;
+            }
+        });
     }
 
     public async Task<T> GetRunAction<T>(string threadId, string runId, string functionName)
@@ -311,7 +329,7 @@ public class LlmService(OpenAIClient client, IMapper mapper, OpenAiConfig config
         }
         catch (Exception e)
         {
-            _log.Error(e, "Error occurred while getting run action");
+            Log.Error(e, "Error occurred while getting run action");
             throw;
         }
     }
@@ -339,7 +357,7 @@ public class LlmService(OpenAIClient client, IMapper mapper, OpenAiConfig config
         }
         catch (Exception e)
         {
-            _log.Error(e, "Error occurred while getting tool call ID");
+            Log.Error(e, "Error occurred while getting tool call ID");
             throw;
         }
     }

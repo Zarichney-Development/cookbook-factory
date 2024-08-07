@@ -106,11 +106,13 @@ public class SynthesizedRecipe : IRecipe, ISynthesizedRecipe
     public required List<string> Ingredients { get; set; }
     public required List<string> Directions { get; set; }
     public required string Notes { get; set; }
-    
+
     public int? QualityScore { get; set; }
     public string? Analysis { get; set; }
     public string? Suggestions { get; set; }
-    public bool IsAnalyzed => QualityScore.HasValue && !string.IsNullOrEmpty(Analysis) && !string.IsNullOrEmpty(Suggestions);
+
+    public bool IsAnalyzed =>
+        QualityScore.HasValue && !string.IsNullOrEmpty(Analysis) && !string.IsNullOrEmpty(Suggestions);
 
     public void AddAnalysisResult(RecipeAnalysis analysisResult)
     {
@@ -123,8 +125,8 @@ public class SynthesizedRecipe : IRecipe, ISynthesizedRecipe
 public class RecipeAnalysis
 {
     public int QualityScore { get; set; }
-    public required string Analysis  { get; set; }
-    public required string Suggestions  { get; set; }
+    public required string Analysis { get; set; }
+    public required string Suggestions { get; set; }
 }
 
 public class AutoMapperProfile : Profile
@@ -132,7 +134,9 @@ public class AutoMapperProfile : Profile
     public AutoMapperProfile()
     {
         CreateMap<CleanedRecipe, Recipe>().ReverseMap();
-        CreateMap<ScrapedRecipe, Recipe>().ReverseMap();
+        CreateMap<ScrapedRecipe, Recipe>()
+            .ForMember(dest => dest.RelevancyScore, opt => opt.MapFrom(src => -1))
+            .ReverseMap();
         CreateMap<SynthesizedRecipe, Recipe>().ReverseMap();
     }
 }

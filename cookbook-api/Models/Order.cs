@@ -23,21 +23,22 @@ public class CookbookOrderSubmission
 
 public class CookbookOrder : CookbookOrderSubmission
 {
-    public CookbookOrder(CookbookOrderSubmission submission, List<string> recipes)
+    public CookbookOrder(CookbookOrderSubmission submission, List<string> recipeList)
     {
         OrderId = GenerateOrderId();
         Email = submission.Email;
         CookbookContent = submission.CookbookContent;
         CookbookDetails = submission.CookbookDetails;
         UserDetails = submission.UserDetails;
-        Recipes = recipes;
+        RecipeList = recipeList;
     }
     
     private string GenerateOrderId()
         => Guid.NewGuid().ToString()[..8];
 
     public string OrderId { get; set; }
-    public List<string> Recipes { get; set; }
+    public List<string> RecipeList { get; set; }
+    public List<SynthesizedRecipe>? Recipes { get; set; }
 }
 
 public class CookbookContent

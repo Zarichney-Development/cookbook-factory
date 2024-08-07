@@ -14,12 +14,11 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Configuration.AddJsonFile("appsettings.json");
 builder.Configuration.AddUserSecrets<Program>();
 
-var seqUrl = builder.Configuration["SeqUrl"];
-
 var logger = new LoggerConfiguration()
     .WriteTo.Console()
     .Enrich.FromLogContext();
 
+var seqUrl = builder.Configuration["LoggingConfig:SeqUrl"];
 if (!string.IsNullOrEmpty(seqUrl))
 {
     logger = logger.WriteTo.Seq(seqUrl);

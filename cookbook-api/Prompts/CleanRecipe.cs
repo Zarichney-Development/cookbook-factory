@@ -17,7 +17,7 @@ public class CleanRecipePrompt(IMapper mapper) : PromptBase
         2. Correct spacing and spelling issues.
         3. Format ingredients and directions as arrays of strings.
         4. Standardize cooking times and temperatures (e.g., '350°F', '175°C').
-        5. Remove irrelevant or accidental content.
+        5. Remove irrelevant or accidental scrapped content (e.g. 'Print Pin It').
         6. Do not add new information or change the original recipe.
         7. Leave empty fields as they are, replace nulls with empty strings.
         8. Ensure consistent formatting.

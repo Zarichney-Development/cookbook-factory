@@ -52,7 +52,7 @@ public class OrderService(
         var semaphore = new SemaphoreSlim(Math.Min(config.MaxParallelTasks, config.MaxSampleRecipes));
         var processingTasks = new List<Task>();
 
-        foreach (var recipeName in order.Recipes)
+        foreach (var recipeName in order.RecipeList)
         {
             if (isSample && completedRecipes.Count >= config.MaxSampleRecipes)
             {
@@ -71,8 +71,7 @@ public class OrderService(
 
         await Task.WhenAll(processingTasks);
 
-        // Update the order's recipe list to reflect what was actually processed
-        order.Recipes = completedRecipes.Select(recipe => recipe.Title).ToList();
+        order.Recipes = completedRecipes.ToList();
 
         return order;
 
