@@ -1,7 +1,9 @@
 using System.Reflection;
+using Azure.Identity;
 using Cookbook.Factory.Services;
 using Cookbook.Factory.Middleware;
 using Cookbook.Factory.Prompts;
+using Microsoft.Graph;
 using OpenAI;
 using Microsoft.OpenApi.Models;
 using Serilog;
@@ -25,18 +27,27 @@ builder.Configuration.AddJsonFile("appsettings.json");
 builder.Services.AddHttpContextAccessor();
 
 builder.Services.AddControllers()
-    .AddJsonOptions(options =>
-    {
-        options.JsonSerializerOptions.Converters.Add(new TypeConverter());
-    });
+    .AddJsonOptions(options => { options.JsonSerializerOptions.Converters.Add(new TypeConverter()); });
 
 builder.Services.AddAutoMapper(typeof(Program));
+
+var emailConfig = builder.Configuration.GetSection("EmailConfig").Get<EmailConfig>()!;
+builder.Services.AddSingleton(emailConfig);
+
+var graphClient = new GraphServiceClient(new ClientSecretCredential(
+    emailConfig.AzureTenantId, emailConfig.AzureAppId, emailConfig.AzureAppSecret, new TokenCredentialOptions
+    {
+        AuthorityHost = AzureAuthorityHosts.AzurePublicCloud
+    }), new[] { "https://graph.microsoft.com/.default" });
+builder.Services.AddSingleton(graphClient);
 
 builder.Services.AddPrompts(typeof(PromptBase).Assembly);
 builder.Services.AddSingleton<FileService>();
 builder.Services.AddTransient<RecipeService>();
 builder.Services.AddTransient<OrderService>();
 builder.Services.AddTransient<WebScraperService>();
+builder.Services.AddSingleton<IEmailService, EmailService>();
+builder.Services.AddSingleton<ITemplateService, TemplateService>();
 builder.Services.AddTransient<ILlmService, LlmService>();
 
 builder.Services.AddEndpointsApiExplorer();
@@ -118,4 +129,13 @@ public static class ServiceCollectionExtensions
 
         return services;
     }
+}
+
+public class EmailConfig
+{
+    public required string AzureTenantId { get; set; }
+    public required string AzureAppId { get; set; }
+    public required string AzureAppSecret { get; set; }
+    public required string FromEmail { get; set; }
+    public required string TemplateDirectory { get; set; }
 }

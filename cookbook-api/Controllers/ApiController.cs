@@ -8,9 +8,32 @@ namespace Cookbook.Factory.Controllers;
 
 [ApiController]
 [Route("api")]
-public class ApiController(RecipeService recipeService, OrderService orderService) : ControllerBase
+public class ApiController(RecipeService recipeService, OrderService orderService, IEmailService emailService) : ControllerBase
 {
     private readonly ILogger _log = Log.ForContext<ApiController>();
+    
+
+    [HttpPost("email")]
+    public async Task<IActionResult> SendCookbook()
+    {
+        var templateData = new Dictionary<string, object>
+        {
+            { "title", "Your Cookbook is Ready!" },
+            { "company_name", "Cookbook Factory" },
+            { "current_year", DateTime.Now.Year },
+            { "unsubscribe_link", "https://cookbookfactory.com/unsubscribe" },
+        };
+
+        await emailService.SendEmail(
+            "zarichney@gmail.com",
+            "Your Cookbook is Ready!",
+            "cookbook-ready",
+            templateData
+        );
+
+        return Ok("Email sent");
+    }
+    
     
     [HttpPost("cookbook")]
     public async Task<ActionResult<CookbookOrder>> CreateCookbook([FromBody] CookbookOrderSubmission submission)

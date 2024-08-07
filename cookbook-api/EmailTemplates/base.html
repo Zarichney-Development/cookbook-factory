@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{title}}</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        @media only screen and (max-width: 600px) {
+            .container {
+                width: 100% !important;
+            }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <header>
+        <h1>{{company_name}}</h1>
+    </header>
+    <main>
+        {{{content}}}
+    </main>
+    <footer>
+        <p>&copy; {{current_year}} {{company_name}}. All rights reserved.</p>
+        <p><a href="{{unsubscribe_link}}">Unsubscribe</a></p>
+    </footer>
+</div>
+</body>
+</html>
