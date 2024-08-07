@@ -12,7 +12,7 @@ namespace Cookbook.Factory.Services;
 public class OpenAiConfig : IConfig
 {
     public string ModelName { get; init; } = LlmModels.Gpt4Omini;
-    public int RetryAttempts { get; init; } = 3;
+    public int RetryAttempts { get; init; } = 5;
 }
 
 public static class LlmModels
@@ -52,7 +52,8 @@ public class LlmService(OpenAIClient client, IMapper mapper, OpenAiConfig config
             sleepDurationProvider: _ => TimeSpan.FromSeconds(1),
             onRetry: (exception, _, retryCount, context) =>
             {
-                Log.Warning(exception, "Attempt {retryCount}: Retrying due to {exception}. Retry Context: {@Context}", retryCount, exception.Message, context);
+                Log.Warning(exception, "Attempt {retryCount}: Retrying due to {exception}. Retry Context: {@Context}",
+                    retryCount, exception.Message, context);
             }
         );
 
@@ -233,7 +234,7 @@ public class LlmService(OpenAIClient client, IMapper mapper, OpenAiConfig config
             new SystemChatMessage(systemPrompt),
             new UserChatMessage(userPrompt)
         };
-        
+
         return await _retryPolicy.ExecuteAsync(async () => await CallFunction<T>(function, messages));
     }
 
@@ -293,7 +294,7 @@ public class LlmService(OpenAIClient client, IMapper mapper, OpenAiConfig config
         return await _retryPolicy.ExecuteAsync(async () =>
         {
             var chatClient = client.GetChatClient(config.ModelName);
-        
+
             try
             {
                 return await chatClient.CompleteChatAsync(messages, options);
@@ -308,30 +309,34 @@ public class LlmService(OpenAIClient client, IMapper mapper, OpenAiConfig config
 
     public async Task<T> GetRunAction<T>(string threadId, string runId, string functionName)
     {
-        try
+        return await _retryPolicy.ExecuteAsync(async () =>
         {
-            var assistantClient = client.GetAssistantClient();
-            var runResult = await assistantClient.GetRunAsync(threadId, runId);
-            var run = runResult.Value;
-
-            if (run.Status != RunStatus.RequiresAction)
+            try
             {
-                throw new InvalidOperationException($"Run status is {run.Status}, expected RequiresAction");
-            }
+                var assistantClient = client.GetAssistantClient();
+                var runResult = await assistantClient.GetRunAsync(threadId, runId);
+                var run = runResult.Value;
 
-            var action = run.RequiredActions.FirstOrDefault(a => a.FunctionName == functionName);
-            if (action == null)
+                if (run.Status != RunStatus.RequiresAction)
+                {
+                    throw new InvalidOperationException($"Run status is {run.Status}, expected RequiresAction");
+                }
+
+                var action = run.RequiredActions.FirstOrDefault(a => a.FunctionName == functionName);
+                if (action == null)
+                {
+                    throw new InvalidOperationException($"No action found for function {functionName}");
+                }
+
+
+                return Utils.Deserialize<T>(action.FunctionArguments);
+            }
+            catch (Exception e)
             {
-                throw new InvalidOperationException($"No action found for function {functionName}");
+                Log.Error(e, "Error occurred while getting run action");
+                throw;
             }
-
-            return Utils.Deserialize<T>(action.FunctionArguments);
-        }
-        catch (Exception e)
-        {
-            Log.Error(e, "Error occurred while getting run action");
-            throw;
-        }
+        });
     }
 
     public async Task<string> GetToolCallId(string threadId, string runId, string functionName)

@@ -18,7 +18,8 @@ public class OrderService(
     ILlmService llmService,
     FileService fileService,
     RecipeService recipeService,
-    ProcessOrderPrompt processOrderPrompt
+    ProcessOrderPrompt processOrderPrompt,
+    PdfCompiler pdfCompiler
 )
 {
     private readonly ILogger _log = Log.ForContext<OrderService>();
@@ -45,6 +46,9 @@ public class OrderService(
 
         return order;
     }
+
+    public async Task<CookbookOrder> GetOrder(string orderId)
+        => await fileService.ReadFromFile<CookbookOrder>(Path.Combine(config.OutputDirectory, orderId), "Order");
 
     public async Task<CookbookOrder> GenerateCookbookAsync(CookbookOrder order, bool isSample = false)
     {
@@ -73,6 +77,8 @@ public class OrderService(
 
         order.Recipes = completedRecipes.ToList();
 
+        UpdateOrderFile(order);
+
         return order;
 
         async Task ProcessRecipe(string recipeName)
@@ -99,10 +105,14 @@ public class OrderService(
 
                 var (result, rejects) = await recipeService.SynthesizeRecipe(recipes, order, recipeName);
 
+                var count = 0;
                 foreach (var recipe in rejects)
                 {
-                    WriteRejectToOrderDir(order.OrderId, recipeName, recipe);
+                    WriteRejectToOrderDir(order.OrderId, $"{++count}. {recipeName}", recipe);
                 }
+
+                // Add image to recipe
+                result.ImageUrl = GetImageUrl(result, recipes);
 
                 WriteRecipeToOrderDir(order.OrderId, recipeName, result);
                 completedRecipes.Enqueue(result);
@@ -114,7 +124,26 @@ public class OrderService(
         }
     }
 
+    private string? GetImageUrl(ISynthesizedRecipe result, List<Recipe> recipes)
+    {
+        var relevantRecipes = recipes.Where(r => result.InspiredBy?.Contains(r.RecipeUrl!) ?? false).ToList();
+
+        if (relevantRecipes.Count == 0)
+        {
+            // Fallback to using any of the provided recipes
+            relevantRecipes = recipes;
+        }
+
+        return relevantRecipes
+            .Where(r => !string.IsNullOrWhiteSpace(r.ImageUrl))
+            .Select(r => r.ImageUrl)
+            .FirstOrDefault();
+    }
+
     private void CreateOrderDirectory(CookbookOrder order)
+        => UpdateOrderFile(order);
+
+    private void UpdateOrderFile(CookbookOrder order)
         => fileService.WriteToFile(
             Path.Combine(config.OutputDirectory, order.OrderId),
             "Order",
@@ -134,4 +163,35 @@ public class OrderService(
             recipeName,
             recipe
         );
+
+    public void CompilePdf(CookbookOrder order)
+    {
+        if (!(order.Recipes?.Count > 0))
+        {
+            throw new Exception("No recipes found for order");
+        }
+
+        var markdown = new List<string>();
+
+        foreach (var recipe in order.Recipes)
+        {
+            var recipeMarkdown = recipe.ToMarkdown();
+            fileService.WriteToFile(
+                Path.Combine(config.OutputDirectory, order.OrderId, "recipes"),
+                recipe.Title,
+                recipeMarkdown,
+                "md"
+            );
+            markdown.Add(recipeMarkdown);
+        }
+
+        var pdf = pdfCompiler.CompileCookbook(markdown);
+
+        fileService.WriteToFile(
+            Path.Combine(config.OutputDirectory, order.OrderId),
+            "Cookbook",
+            pdf,
+            "pdf"
+        );
+    }
 }

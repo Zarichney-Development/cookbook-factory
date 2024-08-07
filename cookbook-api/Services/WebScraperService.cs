@@ -8,13 +8,16 @@ using ILogger = Serilog.ILogger;
 
 namespace Cookbook.Factory.Services;
 
-public class WebScraperService
+public class WebscraperConfig : IConfig
+{
+    public int MaxNumRecipesPerSite { get; init; } = 3;
+    public int MaxParallelTasks { get; init; } = 3;
+    public int MaxParallelSites { get; init; } = 5;
+}
+
+public class WebScraperService(WebscraperConfig config)
 {
     private readonly ILogger _log = Log.ForContext<WebScraperService>();
-    
-    private const int MaxNumRecipesPerSite = 3;
-    private const int MaxParallelTasks = MaxNumRecipesPerSite;
-    private const int MaxParallelSites = 5;
 
     private static Dictionary<string, Dictionary<string, string>>? _siteSelectors;
 
@@ -25,7 +28,7 @@ public class WebScraperService
 
         var allRecipes = new ConcurrentBag<ScrapedRecipe>();
         var tasks = new List<Task>();
-        var semaphore = new SemaphoreSlim(MaxParallelSites);
+        var semaphore = new SemaphoreSlim(config.MaxParallelSites);
 
         foreach (var site in _siteSelectors)
         {
@@ -49,7 +52,7 @@ public class WebScraperService
                     var recipeUrls = await SearchSiteForRecipeUrls(site.Key, query);
 
                     // Use the site's selectors to extract the text from the html and return the data
-                    var scrapedRecipes = await ScrapeSiteForRecipesAsync(site.Key, recipeUrls);
+                    var scrapedRecipes = await ScrapeSiteForRecipesAsync(site.Key, recipeUrls, query);
 
                     foreach (var recipe in scrapedRecipes)
                     {
@@ -113,13 +116,17 @@ public class WebScraperService
         return recipeUrls!;
     }
 
-    private async Task<List<ScrapedRecipe>> ScrapeSiteForRecipesAsync(string site, List<string> recipeUrls)
+    private async Task<List<ScrapedRecipe>> ScrapeSiteForRecipesAsync(string site, List<string> recipeUrls,
+        string query)
     {
         var scrapedRecipes = new ConcurrentQueue<ScrapedRecipe>();
-        var semaphore = new SemaphoreSlim(MaxParallelTasks);
+        var semaphore = new SemaphoreSlim(config.MaxParallelTasks);
 
-        await Parallel.ForEachAsync(recipeUrls.TakeWhile(_ => scrapedRecipes.Count < MaxNumRecipesPerSite),
-            new ParallelOptions { MaxDegreeOfParallelism = MaxParallelTasks },
+        _log.Information("Scraping the first {count} recipes from {site} for {recipe}", config.MaxNumRecipesPerSite, site,
+            query);
+
+        await Parallel.ForEachAsync(recipeUrls.TakeWhile(_ => scrapedRecipes.Count < config.MaxNumRecipesPerSite),
+            new ParallelOptions { MaxDegreeOfParallelism = config.MaxParallelTasks },
             async (url, ct) =>
             {
                 await semaphore.WaitAsync(ct);
@@ -129,6 +136,7 @@ public class WebScraperService
                     var fullUrl = url.StartsWith("https://") ? url : $"{_siteSelectors![site]["base_url"]}{url}";
                     try
                     {
+                        _log.Information("Scraping {recipe} recipe from {url}", query, url);
                         var recipe = await ParseRecipeFromSite(fullUrl, _siteSelectors![site]);
                         scrapedRecipes.Enqueue(recipe);
                     }
@@ -178,6 +186,7 @@ public class WebScraperService
 
     private string? ExtractText(IDocument document, string selector, string? attribute = null)
         => ExtractTextFromHtmlDoc(document, selector, attribute);
+
     private string? ExtractTextFromHtmlDoc(IDocument document, string selector, string? attribute = null)
     {
         if (string.IsNullOrEmpty(selector)) return null;

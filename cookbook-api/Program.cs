@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Text;
 using Azure.Identity;
 using Cookbook.Factory.Services;
 using Cookbook.Factory.Middleware;
@@ -8,6 +9,8 @@ using Microsoft.IdentityModel.Protocols.Configuration;
 using OpenAI;
 using Microsoft.OpenApi.Models;
 using Serilog;
+
+Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -60,6 +63,7 @@ builder.Services.AddTransient<OrderService>();
 builder.Services.AddTransient<WebScraperService>();
 builder.Services.AddSingleton<IEmailService, EmailService>();
 builder.Services.AddSingleton<ITemplateService, TemplateService>();
+builder.Services.AddTransient<PdfCompiler>();
 builder.Services.AddTransient<ILlmService, LlmService>();
 
 builder.Services.AddEndpointsApiExplorer();

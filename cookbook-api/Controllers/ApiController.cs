@@ -8,10 +8,14 @@ namespace Cookbook.Factory.Controllers;
 
 [ApiController]
 [Route("api")]
-public class ApiController(RecipeService recipeService, OrderService orderService, IEmailService emailService) : ControllerBase
+public class ApiController(
+    RecipeService recipeService,
+    OrderService orderService,
+    IEmailService emailService
+) : ControllerBase
 {
     private readonly ILogger _log = Log.ForContext<ApiController>();
-    
+
 
     [HttpPost("email")]
     public async Task<IActionResult> SendCookbook()
@@ -33,8 +37,8 @@ public class ApiController(RecipeService recipeService, OrderService orderServic
 
         return Ok("Email sent");
     }
-    
-    
+
+
     [HttpPost("cookbook")]
     public async Task<ActionResult<CookbookOrder>> CreateCookbook([FromBody] CookbookOrderSubmission submission)
     {
@@ -48,6 +52,8 @@ public class ApiController(RecipeService recipeService, OrderService orderServic
         var order = await orderService.ProcessOrderSubmission(submission);
 
         await orderService.GenerateCookbookAsync(order, true);
+
+        orderService.CompilePdf(order);
 
         return Ok(order);
     }
@@ -78,5 +84,21 @@ public class ApiController(RecipeService recipeService, OrderService orderServic
             _log.Error(ex, $"Error occurred while processing query: {query}");
             return StatusCode(500, ex);
         }
+    }
+
+    [HttpGet("pdf")]
+    public async Task<IActionResult> GetPdf([FromQuery] string orderId)
+    {
+        if (string.IsNullOrWhiteSpace(orderId))
+        {
+            _log.Warning("Empty orderId received");
+            return BadRequest("OrderId parameter is required");
+        }
+
+        var order = await orderService.GetOrder(orderId);
+
+        orderService.CompilePdf(order);
+
+        return Ok();
     }
 }

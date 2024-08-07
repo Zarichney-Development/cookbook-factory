@@ -30,7 +30,7 @@ public class ProcessOrderPrompt : PromptBase
 
         1. Analyze the CookbookContent section:
            - Check the RecipeSpecificationType to determine if the user has provided specific recipes or general meal types.
-           - If SpecificRecipes is provided, use these as a starting point.
+           - If SpecificRecipes is provided, use these as a starting point, preserving the exact same recipe names in the output in order to respect the user's recipe title request(s).
            - If GeneralMealTypes is provided, use these to guide your recipe selection.
            - IMPORTANT: The ExpectedRecipeCount is the exact amount of recipe names you must generate using the function call.
 
@@ -45,11 +45,10 @@ public class ProcessOrderPrompt : PromptBase
            - Select recipes appropriate for the user's SkillLevel.
            - Choose recipes that align with CookingGoals and TimeConstraints.
            - Consider HealthFocus and FamilyConsiderations in your selections.
-           - Ensure recipes are suitable for the specified ServingSize.
 
         4. Recipe Selection and Query Formulation Process:
-           - If specific recipes are provided but fall short of the ExpectedRecipeCount, generate additional recipes that complement the existing selections and align with the user's preferences.
-           - If only general meal types or no specific recipes are provided, generate a full list of recipes based on all available information.
+           - If specific recipes are provided but fall short of the ExpectedRecipeCount, generate additional recipes that complement the existing selections and align with the user's preferences. Always include the exact specific recipes in the list output.
+           - If only general meal types or no specific recipes are provided, generate a full list of diverse recipes based on all available information.
            - Create recipe queries that are specific enough to yield relevant results but not so specific that they might fail to return results. For example:
              - Use "Thai Basil Stir-Fry" instead of "15-Minute Thai Basil Stir-Fry"
              - Replace generic terms like "burger" with more specific but still broadly searchable terms like "Bacon Cheeseburger" or "Vegetarian Mushroom Burger"
@@ -63,7 +62,6 @@ public class ProcessOrderPrompt : PromptBase
              - Main ingredients (e.g., chicken dishes, vegetarian options)
              - Cooking methods (e.g., grilled dishes, slow-cooker meals)
              - Occasions (e.g., weeknight dinners, special occasions)
-           - Within these considerations, order recipes from simpler to more complex if appropriate.
 
         ## Output Format
 
@@ -74,12 +72,12 @@ public class ProcessOrderPrompt : PromptBase
         [
           "Overnight Oats with Berries",
           "Vegetarian Lentil Soup",
-          "Gluten-Free Margherita Pizza",
+          "Margherita Pizza",
           ...
         ]
         ```
 
-        Remember, your goal is to create a tailored, well-organized list of recipes that perfectly matches the user's vision for their personalized cookbook, with recipe names that are specific yet broadly searchable. The order of the list should reflect a logical progression through the cookbook.
+        Remember, your goal is to create a tailored, well-organized list of recipes that perfectly matches the user's vision for their personalized cookbook, with recipe names that are specific yet broadly searchable. The order of the list should reflect a logical progression through the cookbook. Respect the ExpectedRecipeCount in the list output.
         """;
 
     public string GetUserPrompt(CookbookOrderSubmission order)

@@ -16,7 +16,7 @@ public class RecipeConfig : IConfig
     public int AcceptableScoreThreshold { get; init; } = 75;
     public int QualityScoreThreshold { get; init; } = 80;
     public int MinRelevantRecipes { get; init; } = 5;
-    public int MaxNewRecipeNameAttempts { get; init; } = 3;
+    public int MaxNewRecipeNameAttempts { get; init; } = 5;
     public int MaxParallelTasks { get; init; } = 5; // Same as MinRelevantRecipes
     public string OutputDirectory { get; init; } = "Recipes";
 }
@@ -120,7 +120,7 @@ public class RecipeService(
         acceptableScore ??= config.AcceptableScoreThreshold;
 
         // First, attempt to find and load existing JSON file
-        var recipes = await fileService.LoadExistingData<Recipe>(config.OutputDirectory, query);
+        var recipes = await fileService.ReadFromFile<List<Recipe>>(config.OutputDirectory, query);
 
         if (recipes.Any())
         {
@@ -159,7 +159,6 @@ public class RecipeService(
             .Take(config.RecipesToReturnPerRetrieval)
             .ToList();
     }
-
 
     private async Task<RelevancyResult> RankRecipe(Recipe recipe, string query)
     {
@@ -395,8 +394,12 @@ public class RecipeService(
 
             if (status == RunStatus.RequiresAction)
             {
-                return await llmService.GetRunAction<SynthesizedRecipe>(threadId, runId,
+                var result = await llmService.GetRunAction<SynthesizedRecipe>(threadId, runId,
                     synthesizeRecipePrompt.GetFunction().Name);
+
+                result.InspiredBy ??= [];
+
+                return result;
             }
 
             await Task.Delay(TimeSpan.FromSeconds(1));
