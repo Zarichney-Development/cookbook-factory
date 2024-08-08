@@ -34,6 +34,11 @@ public interface IRelevancyResult
     public string? RelevancyReasoning { get; set; }
 }
 
+public class SearchResult
+{
+    public required List<int> SelectedIndices { get; set; }
+}
+
 public interface ICleanedRecipe
 {
     public bool Cleaned { get; set; }

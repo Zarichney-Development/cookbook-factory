@@ -11,33 +11,35 @@ namespace Cookbook.Factory.Controllers;
 public class ApiController(
     RecipeService recipeService,
     OrderService orderService,
-    IEmailService emailService
+    IEmailService emailService,
+    WebScraperService webScraperService,
+    IBackgroundTaskQueue taskQueue
 ) : ControllerBase
 {
     private readonly ILogger _log = Log.ForContext<ApiController>();
 
-
-    [HttpPost("email")]
-    public async Task<IActionResult> SendCookbook()
+    [HttpGet("order/{orderId}")]
+    public async Task<IActionResult> GetOrder([FromRoute] string orderId)
     {
-        var templateData = new Dictionary<string, object>
+        try
         {
-            { "title", "Your Cookbook is Ready!" },
-            { "company_name", "Cookbook Factory" },
-            { "current_year", DateTime.Now.Year },
-            { "unsubscribe_link", "https://cookbookfactory.com/unsubscribe" },
-        };
+            var order = await orderService.GetOrder(orderId);
+            return Ok(order);
+        }
+        catch (Exception ex)
+        {
+            _log.Error(ex, "Order not found using orderId: {orderId}", orderId);
+            return NotFound($"Order not found: {orderId}");
+        }
+    }
 
-        await emailService.SendEmail(
-            "zarichney@gmail.com",
-            "Your Cookbook is Ready!",
-            "cookbook-ready",
-            templateData
-        );
+    [HttpPost("order/{orderId}/email")]
+    public async Task<IActionResult> ResendCookbook([FromRoute] string orderId)
+    {
+        await orderService.EmailCookbook(orderId);
 
         return Ok("Email sent");
     }
-
 
     [HttpPost("cookbook")]
     public async Task<ActionResult<CookbookOrder>> CreateCookbook([FromBody] CookbookOrderSubmission submission)
@@ -49,16 +51,33 @@ public class ApiController(
             return BadRequest("Email is required");
         }
 
+        try
+        {
+            await emailService.ValidateEmail(submission.Email);
+        }
+        catch (InvalidEmailException e)
+        {
+            return BadRequest(new
+            {
+                error = e.Message,
+                email = e.Email,
+                reason = e.Reason.ToString()
+            });
+        }
+
         var order = await orderService.ProcessOrderSubmission(submission);
+        
+        // Queue the cookbook generation task
+        taskQueue.QueueBackgroundWorkItemAsync(async token =>
+        {
+            await orderService.GenerateCookbookAsync(order, true);
+            await orderService.CompilePdf(order);
+            await orderService.EmailCookbook(order.OrderId);
+        });
 
-        await orderService.GenerateCookbookAsync(order, true);
-
-        await orderService.CompilePdf(order);
-
-        return Ok(order);
+        return Created($"/api/order/{order.OrderId}", order);
     }
-
-
+    
     [HttpGet("recipe")]
     public async Task<IActionResult> GetRecipes([FromQuery] string query)
     {
@@ -86,8 +105,35 @@ public class ApiController(
         }
     }
 
-    [HttpGet("pdf")]
-    public async Task<IActionResult> GetPdf([FromQuery] string orderId)
+    [HttpGet("recipe/scrape")]
+    public async Task<IActionResult> SearchRecipes([FromQuery] string query)
+    {
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            _log.Warning("Empty query received");
+            return BadRequest("Query parameter is required");
+        }
+
+        try
+        {
+            var recipes = await webScraperService.ScrapeForRecipesAsync(query);
+
+            if (recipes.Count == 0)
+            {
+                return NotFound($"No recipes found for '{query}'");
+            }
+
+            return Ok(recipes);
+        }
+        catch (Exception ex)
+        {
+            _log.Error(ex, $"Error occurred while processing query: {query}");
+            return StatusCode(500, ex);
+        }
+    }
+
+    [HttpPost("order/{orderId}/pdf")]
+    public async Task<IActionResult> RebuildPdf([FromQuery] string orderId)
     {
         if (string.IsNullOrWhiteSpace(orderId))
         {
@@ -99,6 +145,32 @@ public class ApiController(
 
         await orderService.CompilePdf(order);
 
-        return Ok();
+        return Ok("PDF Rebuilt");
+    }
+    
+    [HttpPost("email/validate")]
+    public async Task<IActionResult> ValidateEmail([FromQuery] string email)
+    {
+        if (string.IsNullOrWhiteSpace(email))
+        {
+            _log.Warning("Empty email received");
+            return BadRequest("Email parameter is required");
+        }
+
+        try
+        {
+            await emailService.ValidateEmail(email);
+        }
+        catch (InvalidEmailException e)
+        {
+            return BadRequest(new
+            {
+                error = e.Message,
+                email = e.Email,
+                reason = e.Reason.ToString()
+            });
+        }
+
+        return Ok("Valid");
     }
 }

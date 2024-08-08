@@ -3,6 +3,7 @@ using System.Text.Json;
 using AngleSharp;
 using AngleSharp.Dom;
 using Cookbook.Factory.Models;
+using Cookbook.Factory.Prompts;
 using Serilog;
 using ILogger = Serilog.ILogger;
 
@@ -11,11 +12,11 @@ namespace Cookbook.Factory.Services;
 public class WebscraperConfig : IConfig
 {
     public int MaxNumRecipesPerSite { get; init; } = 3;
-    public int MaxParallelTasks { get; init; } = 3;
+    public int MaxParallelTasks { get; init; } = 5;
     public int MaxParallelSites { get; init; } = 5;
 }
 
-public class WebScraperService(WebscraperConfig config)
+public class WebScraperService(WebscraperConfig config, ChooseRecipesPrompt chooseRecipesPrompt, ILlmService llmService)
 {
     private readonly ILogger _log = Log.ForContext<WebScraperService>();
 
@@ -51,8 +52,11 @@ public class WebScraperService(WebscraperConfig config)
                     // Use the search page of each site to collect urls for recipe pages
                     var recipeUrls = await SearchSiteForRecipeUrls(site.Key, query);
 
+                    // Conditionally use LLM to return the most relevant URLs
+                    var relevantUrls = await SelectMostRelevantUrls(site.Key, recipeUrls, query);
+                    
                     // Use the site's selectors to extract the text from the html and return the data
-                    var scrapedRecipes = await ScrapeSiteForRecipesAsync(site.Key, recipeUrls, query);
+                    var scrapedRecipes = await ScrapeSiteForRecipesAsync(site.Key, relevantUrls, query);
 
                     foreach (var recipe in scrapedRecipes)
                     {
@@ -76,6 +80,46 @@ public class WebScraperService(WebscraperConfig config)
         _log.Information("Web scraped {count} recipes for {query}", recipes.Count, query);
 
         return recipes;
+    }
+
+    private async Task<List<string>> SelectMostRelevantUrls(string site, List<string> recipeUrls, string query)
+    {
+        if (recipeUrls.Count <= config.MaxNumRecipesPerSite)
+        {
+            return recipeUrls;
+        }
+        
+        try
+        {
+            var result = await llmService.CallFunction<SearchResult>(
+                chooseRecipesPrompt.SystemPrompt,
+                chooseRecipesPrompt.GetUserPrompt(query, recipeUrls, config.MaxNumRecipesPerSite),
+                chooseRecipesPrompt.GetFunction()
+            );
+
+            var indices = result.SelectedIndices;
+
+            if (indices.Count == 0)
+            {
+                throw new Exception("No indices selected");
+            }
+
+            var selectedUrls = recipeUrls.Where((_, index) => indices.Contains(index + 1)).ToList();
+            _log.Information("Selected {count} URLs for {query} on {site}", selectedUrls.Count, query, site);
+
+            if (selectedUrls.Count == 0)
+            {
+                throw new Exception("Index mismatch issue");
+            }
+
+            return selectedUrls;
+        }
+        catch (Exception ex)
+        {
+            _log.Error(ex, "Error selecting URLs for {query} on {site}. Urls: {@Urls}", query, site, recipeUrls);
+        }
+
+        return recipeUrls;
     }
 
     private async Task<List<string>> SearchSiteForRecipeUrls(string site, string query)
@@ -122,7 +166,8 @@ public class WebScraperService(WebscraperConfig config)
         var scrapedRecipes = new ConcurrentQueue<ScrapedRecipe>();
         var semaphore = new SemaphoreSlim(config.MaxParallelTasks);
 
-        _log.Information("Scraping the first {count} recipes from {site} for {recipe}", config.MaxNumRecipesPerSite, site,
+        _log.Information("Scraping the first {count} recipes from {site} for {recipe}", config.MaxNumRecipesPerSite,
+            site,
             query);
 
         await Parallel.ForEachAsync(recipeUrls.TakeWhile(_ => scrapedRecipes.Count < config.MaxNumRecipesPerSite),

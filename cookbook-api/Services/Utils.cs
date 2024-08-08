@@ -92,16 +92,12 @@ public static class Utils
 
     public static string ToMarkdownTable(List<List<string>> rows)
     {
-        var headers = new List<string>();
-        foreach (var unused in rows)
-        {
-            headers.Add(" ");
-        }
+        var headers = rows.Select(_ => " ").ToList();
 
         return ToMarkdownTable(headers, rows);
     }
 
-    public static string ToMarkdownTable(List<string> headers, List<List<string>> rows)
+    private static string ToMarkdownTable(List<string> headers, List<List<string>> rows)
     {
         var sb = new StringBuilder();
         sb.AppendLine("{.tableStyle}");
@@ -228,7 +224,7 @@ public static class ConfigurationExtensions
     {
         var configTypes = Assembly.GetExecutingAssembly()
             .GetTypes()
-            .Where(t => typeof(IConfig).IsAssignableFrom(t) && !t.IsInterface && !t.IsAbstract);
+            .Where(t => typeof(IConfig).IsAssignableFrom(t) && t is { IsInterface: false, IsAbstract: false });
 
         foreach (var configType in configTypes)
         {

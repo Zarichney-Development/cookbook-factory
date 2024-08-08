@@ -8,7 +8,7 @@ namespace Cookbook.Factory.Services;
 
 public class OrderConfig : IConfig
 {
-    public int MaxParallelTasks { get; init; } = 1;
+    public int MaxParallelTasks { get; init; } = 5;
     public int MaxSampleRecipes { get; init; } = 3;
     public string OutputDirectory { get; init; } = "Orders";
 }
@@ -19,7 +19,8 @@ public class OrderService(
     FileService fileService,
     RecipeService recipeService,
     ProcessOrderPrompt processOrderPrompt,
-    PdfCompiler pdfCompiler
+    PdfCompiler pdfCompiler,
+    IEmailService emailService
 )
 {
     private readonly ILogger _log = Log.ForContext<OrderService>();
@@ -53,7 +54,14 @@ public class OrderService(
     public async Task<CookbookOrder> GenerateCookbookAsync(CookbookOrder order, bool isSample = false)
     {
         var completedRecipes = new ConcurrentQueue<SynthesizedRecipe>();
-        var semaphore = new SemaphoreSlim(Math.Min(config.MaxParallelTasks, config.MaxSampleRecipes));
+        
+        var maxParralelTasks = config.MaxParallelTasks;
+        if (isSample)
+        {
+            maxParralelTasks = Math.Min(maxParralelTasks, config.MaxSampleRecipes);
+        }
+        
+        var semaphore = new SemaphoreSlim(maxParralelTasks);
         var processingTasks = new List<Task>();
 
         foreach (var recipeName in order.RecipeList)
@@ -64,7 +72,17 @@ public class OrderService(
                 break;
             }
 
-            processingTasks.Add(ProcessRecipe(recipeName));
+            processingTasks.Add(Task.Run(async () =>
+            {
+                try
+                {
+                    await ProcessRecipe(recipeName);
+                }
+                catch (Exception ex)
+                {
+                    _log.Error(ex, "Unhandled exception in ProcessRecipe for {RecipeName}", recipeName);
+                }
+            }));
 
             if (processingTasks.Count >= config.MaxParallelTasks)
             {
@@ -73,7 +91,14 @@ public class OrderService(
             }
         }
 
-        await Task.WhenAll(processingTasks);
+        try
+        {
+            await Task.WhenAll(processingTasks);
+        }
+        catch (Exception ex)
+        {
+            _log.Error(ex, "Unhandled exception in one of the processing tasks.");
+        }
 
         order.Recipes = completedRecipes.ToList();
 
@@ -99,8 +124,8 @@ public class OrderService(
                 }
                 catch (Exception ex)
                 {
-                    _log.Error(ex, "Skipping recipe {RecipeName} due to no recipes found", recipeName);
-                    return;
+                    _log.Error(ex, "Omitting recipe {RecipeName} due to no recipes found", recipeName);
+                    return; // is this the right way to exit ProcessRecipe? 
                 }
 
                 var (result, rejects) = await recipeService.SynthesizeRecipe(recipes, order, recipeName);
@@ -168,7 +193,7 @@ public class OrderService(
     {
         if (!(order.Recipes?.Count > 0))
         {
-            throw new Exception("No recipes found for order");
+            throw new Exception("Cannot assemble pdf as this order contains no recipes");
         }
 
         foreach (var recipe in order.Recipes)
@@ -182,12 +207,42 @@ public class OrderService(
         }
 
         var pdf = await pdfCompiler.CompileCookbook(order);
+        
+        _log.Information("Cookbook compiled for order {OrderId}. Writing to disk", order.OrderId);
 
         fileService.WriteToFile(
             Path.Combine(config.OutputDirectory, order.OrderId),
             "Cookbook",
             pdf,
             "pdf"
+        );
+    }
+
+    public async Task EmailCookbook(string orderId)
+    {
+        var emailTitle = "Your Cookbook is Ready!";
+        var templateData = new Dictionary<string, object>
+        {
+            { "title", emailTitle },
+            { "company_name", "Zarichney Development" },
+            { "current_year", DateTime.Now.Year },
+            { "unsubscribe_link", "https://zarichney.com/unsubscribe" },
+        };
+
+        var order = await GetOrder(orderId);
+        
+        _log.Information("Retrieved order {OrderId} for email", orderId);
+        
+        var pdf = await fileService.ReadFromFile<byte[]>(Path.Combine(config.OutputDirectory, orderId), "Cookbook", "pdf");
+        
+        _log.Information("Emailing cookbook to {Email}", order.Email);
+
+        await emailService.SendEmail(
+            order.Email,
+            emailTitle,
+            "cookbook-ready",
+            templateData,
+            pdf
         );
     }
 }

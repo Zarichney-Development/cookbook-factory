@@ -3,6 +3,8 @@ using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using PdfSharp.Pdf;
+using Polly;
+using Polly.Retry;
 using Serilog;
 using ILogger = Serilog.ILogger;
 
@@ -14,6 +16,18 @@ public class FileService : IDisposable
     private readonly ConcurrentQueue<WriteOperation> _writeQueue = new();
     private readonly Task _processQueueTask;
     private readonly CancellationTokenSource _cancellationTokenSource = new();
+
+    private readonly AsyncRetryPolicy _retryPolicy = Policy
+        .Handle<Exception>()
+        .WaitAndRetryAsync(
+            retryCount: 5,
+            sleepDurationProvider: _ => TimeSpan.FromMilliseconds(200),
+            onRetry: (exception, _, retryCount, context) =>
+            {
+                Log.Warning(exception, "Attempt {retryCount}: Retrying due to {exception}. Retry Context: {@Context}",
+                    retryCount, exception.Message, context);
+            }
+        );
 
     private readonly JsonSerializerOptions _jsonSerializerOptions = new()
     {
@@ -105,19 +119,23 @@ public class FileService : IDisposable
 
     internal static string SanitizeFileName(string fileName)
     {
-        var invalidChars = Path.GetInvalidFileNameChars();
-        invalidChars.Append(' ');
-        invalidChars.Append('-');
-        return string.Join("_", fileName.Split());
+        var invalidChars = new List<char> { ' ', '-' };
+        invalidChars.AddRange(Path.GetInvalidFileNameChars());
+        return string.Join("_", fileName.Split(invalidChars.ToArray(), StringSplitOptions.RemoveEmptyEntries));
     }
 
     public async Task<T> ReadFromFile<T>(string directory, string filename, string extension = "json")
     {
         var data = await LoadExistingData(directory, filename, extension);
 
-        if (data is not JsonElement jsonElement)
+        if (data == null)
         {
             return default!;
+        }
+
+        if (data is not JsonElement jsonElement)
+        {
+            return (T)data;
         }
 
         return Utils.Deserialize<T>(jsonElement.GetRawText())!;
@@ -131,19 +149,22 @@ public class FileService : IDisposable
 
         try
         {
-            switch (extension.ToLower())
+            return await _retryPolicy.ExecuteAsync(async () =>
             {
-                case "json":
-                    var jsonContent = await File.ReadAllTextAsync(filePath);
-                    return JsonSerializer.Deserialize<object>(jsonContent);
-                case "md":
-                case "txt":
-                    return await File.ReadAllTextAsync(filePath);
-                case "pdf":
-                    return await File.ReadAllBytesAsync(filePath);
-                default:
-                    throw new ArgumentException($"Unsupported file extension: {extension}");
-            }
+                switch (extension.ToLower())
+                {
+                    case "json":
+                        var jsonContent = await File.ReadAllTextAsync(filePath);
+                        return JsonSerializer.Deserialize<object>(jsonContent);
+                    case "md":
+                    case "txt":
+                        return await File.ReadAllTextAsync(filePath);
+                    case "pdf":
+                        return await File.ReadAllBytesAsync(filePath);
+                    default:
+                        throw new ArgumentException($"Unsupported file extension: {extension}");
+                }
+            });
         }
         catch (Exception ex)
         {

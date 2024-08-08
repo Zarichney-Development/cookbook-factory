@@ -41,6 +41,7 @@ builder.Services.AddControllers()
     .AddJsonOptions(options => { options.JsonSerializerOptions.Converters.Add(new TypeConverter()); });
 
 builder.Services.AddAutoMapper(typeof(Program));
+builder.Services.AddMemoryCache();
 
 builder.Services.AddConfigurations(builder.Configuration);
 
@@ -58,11 +59,14 @@ builder.Services.AddSingleton(graphClient);
 
 builder.Services.AddPrompts(typeof(PromptBase).Assembly);
 builder.Services.AddSingleton<FileService>();
+builder.Services.AddSingleton<IEmailService, EmailService>();
+builder.Services.AddSingleton<ITemplateService, TemplateService>();
+builder.Services.AddSingleton<IBackgroundTaskQueue>(ctx => new BackgroundTaskQueue(100));
+builder.Services.AddHostedService<BackgroundTaskService>();
+
 builder.Services.AddTransient<RecipeService>();
 builder.Services.AddTransient<OrderService>();
 builder.Services.AddTransient<WebScraperService>();
-builder.Services.AddSingleton<IEmailService, EmailService>();
-builder.Services.AddSingleton<ITemplateService, TemplateService>();
 builder.Services.AddTransient<PdfCompiler>();
 builder.Services.AddTransient<ILlmService, LlmService>();
 

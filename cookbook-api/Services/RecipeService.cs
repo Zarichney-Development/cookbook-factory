@@ -54,15 +54,16 @@ public class RecipeService(
 
             if (++attempts > config.MaxNewRecipeNameAttempts)
             {
-                _log.Warning("Aborting recipe searching for '{RecipeName}'", requestedRecipeName);
-                throw new Exception("No recipes found");
+                _log.Error($"Aborting recipe searching for '{{RecipeName}}', attempted {attempts} times",
+                    requestedRecipeName, attempts - 1);
+                throw new Exception($"No recipes found, attempted {attempts - 1} times");
             }
 
             // Lower the bar of acceptable for every attempt
-            acceptableScore -= 10;
+            acceptableScore -= 5;
 
+            // With a lower bar, first attempt to check local sources before performing a new web scrape
             recipes = await GetRecipes(recipeName, acceptableScore, false);
-
             if (recipes.Count > 0)
             {
                 break;
@@ -71,8 +72,9 @@ public class RecipeService(
             // Request for new query to scrap with
             recipeName = await GetReplacementRecipeName(requestedRecipeName, cookbookOrder, previousAttempts);
 
-            _log.Information("Attempting to find a replacement recipe name for '{RecipeName}' using '{NewRecipeName}'",
-                requestedRecipeName, recipeName);
+            _log.Information(
+                "Attempting using a replacement recipe search using '{NewRecipeName}' instead of '{RecipeName}' with an acceptable score of {AcceptableScore}.",
+                recipeName, requestedRecipeName, acceptableScore);
 
             recipes = await GetRecipes(recipeName, acceptableScore);
 
@@ -99,6 +101,7 @@ public class RecipeService(
                  The following recipe name unfortunately did not result in any recipes: {recipeName}.
                  This may be because the recipe name is too unique or not well-known.
                  Please provide an alternative recipe name that should result in a similar search.
+                 The more failed attempts, the more the next search should be broadened.
                  Respond with the alternative search result and nothing else.
                  """)
         };
@@ -153,7 +156,10 @@ public class RecipeService(
 
         recipes = recipes.OrderByDescending(r => r.RelevancyScore).ToList();
 
-        fileService.WriteToFile(config.OutputDirectory, query, recipes);
+        if (recipes.Any())
+        {
+            fileService.WriteToFile(config.OutputDirectory, query, recipes);
+        }
 
         return recipes
             .Where(r => r.Cleaned)
@@ -188,44 +194,51 @@ public class RecipeService(
         var relevantRecipeCount = new AtomicCounter();
         var cts = new CancellationTokenSource();
 
-        await Parallel.ForEachAsync(recipes,
-            new ParallelOptions { MaxDegreeOfParallelism = config.MaxParallelTasks, CancellationToken = cts.Token },
-            async (recipe, ct) =>
-            {
-                if (ct.IsCancellationRequested) return;
-
-                if (recipe.RelevancyScore >= acceptableScore)
+        try
+        {
+            await Parallel.ForEachAsync(recipes,
+                new ParallelOptions { MaxDegreeOfParallelism = config.MaxParallelTasks, CancellationToken = cts.Token },
+                async (recipe, ct) =>
                 {
-                    rankedRecipes.Enqueue(recipe);
-                    if (relevantRecipeCount.Increment() >= config.MinRelevantRecipes)
+                    if (ct.IsCancellationRequested) return;
+
+                    if (recipe.RelevancyScore >= acceptableScore)
                     {
-                        await cts.CancelAsync();
+                        rankedRecipes.Enqueue(recipe);
+                        if (relevantRecipeCount.Increment() >= config.MinRelevantRecipes)
+                        {
+                            await cts.CancelAsync();
+                        }
+
+                        return;
                     }
 
-                    return;
-                }
-
-                await _semaphore.WaitAsync(ct);
-                try
-                {
-                    var result = await RankRecipe(recipe, query);
-
-                    recipe.RelevancyScore = result.RelevancyScore;
-                    recipe.RelevancyReasoning = result.RelevancyReasoning;
-
-                    rankedRecipes.Enqueue(recipe);
-
-                    if (recipe.RelevancyScore >= acceptableScore &&
-                        relevantRecipeCount.Increment() >= config.MinRelevantRecipes)
+                    await _semaphore.WaitAsync(ct);
+                    try
                     {
-                        await cts.CancelAsync();
+                        var result = await RankRecipe(recipe, query);
+
+                        recipe.RelevancyScore = result.RelevancyScore;
+                        recipe.RelevancyReasoning = result.RelevancyReasoning;
+
+                        rankedRecipes.Enqueue(recipe);
+
+                        if (recipe.RelevancyScore >= acceptableScore &&
+                            relevantRecipeCount.Increment() >= config.MinRelevantRecipes)
+                        {
+                            await cts.CancelAsync();
+                        }
                     }
-                }
-                finally
-                {
-                    _semaphore.Release();
-                }
-            });
+                    finally
+                    {
+                        _semaphore.Release();
+                    }
+                });
+        }
+        catch (TaskCanceledException)
+        {
+            // Good to return
+        }
 
         return rankedRecipes.OrderByDescending(r => r.RelevancyScore).ToList();
     }
@@ -343,7 +356,7 @@ public class RecipeService(
                 }
 
                 var analysisResult = await ProcessAnalysisRun(analyzeThreadId, analysisRunId);
-                
+
                 _log.Information("[{Recipe} - Run {count}] Analysis result: {@Analysis}",
                     recipeName, count, analysisResult);
 
@@ -357,9 +370,10 @@ public class RecipeService(
                 // In case LLM fails to provide theses
                 if (string.IsNullOrWhiteSpace(analysisResult.Suggestions))
                 {
-                    analysisResult.Suggestions = "Please pay attention to what is desired from the cookbook order and synthesize another one.";
+                    analysisResult.Suggestions =
+                        "Please pay attention to what is desired from the cookbook order and synthesize another one.";
                 }
-                
+
                 if (string.IsNullOrEmpty(analysisResult.Analysis))
                 {
                     analysisResult.Analysis = "The recipe is not suitable enough for the cookbook order.";

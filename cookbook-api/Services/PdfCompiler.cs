@@ -20,7 +20,7 @@ public class PdfCompilerConfig : IConfig
     public int FontSize { get; init; } = 12;
     public string Title { get; init; } = "Cookbook";
     public string Author { get; init; } = "Zarichney Development";
-    public string ImageDirectory { get; init; } = "./temp/";
+    public string ImageDirectory { get; init; } = "temp";
     public int ImageWidth { get; init; } = 400;
 }
 
