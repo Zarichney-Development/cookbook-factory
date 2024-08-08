@@ -120,7 +120,8 @@ public class RecipeService(
         acceptableScore ??= config.AcceptableScoreThreshold;
 
         // First, attempt to find and load existing JSON file
-        var recipes = await fileService.ReadFromFile<List<Recipe>>(config.OutputDirectory, query);
+        var recipes = await fileService.ReadFromFile<List<Recipe>?>(config.OutputDirectory, query) ??
+                      new List<Recipe>();
 
         if (recipes.Any())
         {
@@ -342,7 +343,7 @@ public class RecipeService(
                 }
 
                 var analysisResult = await ProcessAnalysisRun(analyzeThreadId, analysisRunId);
-
+                
                 _log.Information("[{Recipe} - Run {count}] Analysis result: {@Analysis}",
                     recipeName, count, analysisResult);
 
@@ -351,6 +352,17 @@ public class RecipeService(
                 if (analysisResult.QualityScore >= config.QualityScoreThreshold)
                 {
                     break;
+                }
+
+                // In case LLM fails to provide theses
+                if (string.IsNullOrWhiteSpace(analysisResult.Suggestions))
+                {
+                    analysisResult.Suggestions = "Please pay attention to what is desired from the cookbook order and synthesize another one.";
+                }
+                
+                if (string.IsNullOrEmpty(analysisResult.Analysis))
+                {
+                    analysisResult.Analysis = "The recipe is not suitable enough for the cookbook order.";
                 }
 
                 rejectedRecipes.Add(synthesizedRecipe);

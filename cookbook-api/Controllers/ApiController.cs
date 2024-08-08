@@ -53,7 +53,7 @@ public class ApiController(
 
         await orderService.GenerateCookbookAsync(order, true);
 
-        orderService.CompilePdf(order);
+        await orderService.CompilePdf(order);
 
         return Ok(order);
     }
@@ -97,7 +97,7 @@ public class ApiController(
 
         var order = await orderService.GetOrder(orderId);
 
-        orderService.CompilePdf(order);
+        await orderService.CompilePdf(order);
 
         return Ok();
     }

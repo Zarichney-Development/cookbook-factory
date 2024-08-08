@@ -109,7 +109,7 @@ public class SynthesizedRecipe : IRecipe, ISynthesizedRecipe
     public required string Notes { get; set; }
     public List<string>? InspiredBy { get; set; }
     
-    public string? ImageUrl { get; set; }
+    public List<string>? ImageUrls { get; set; }
 
     public int? QualityScore { get; set; }
     public string? Analysis { get; set; }
@@ -130,14 +130,15 @@ public class SynthesizedRecipe : IRecipe, ISynthesizedRecipe
         var sb = new StringBuilder();
 
         sb.Append(this.ToMarkdownHeader(nameof(Title)));
-        sb.Append(this.ToMarkdownSection(nameof(Description), false));
-
-        var rows = new List<List<string>>
-        {
-            new() { this.ToMarkdownProperty(nameof(Servings)), this.ToMarkdownProperty(nameof(TotalTime)) },
-            new() { this.ToMarkdownProperty(nameof(PrepTime)), this.ToMarkdownProperty(nameof(CookTime)) }
-        };
-        sb.Append(Utils.ToMarkdownTable(rows));
+        
+        sb.AppendLine(this.ToMarkdownProperty(nameof(Servings)));
+        
+        sb.AppendLine(this.ToMarkdownSection(nameof(Description), false));
+        sb.AppendLine(Utils.ToMarkdownHorizontalRule());
+        
+        sb.Append(this.ToMarkdownProperty(nameof(PrepTime)));
+        sb.Append(this.ToMarkdownProperty(nameof(CookTime)));
+        sb.Append(this.ToMarkdownProperty(nameof(TotalTime)));
         sb.AppendLine();
 
         sb.Append(this.ToMarkdownList(nameof(Ingredients)));
@@ -145,7 +146,7 @@ public class SynthesizedRecipe : IRecipe, ISynthesizedRecipe
         sb.Append(this.ToMarkdownSection(nameof(Notes)));
         sb.AppendLine();
         
-        sb.Append(this.ToMarkdownImage(nameof(Title), nameof(ImageUrl)));
+        sb.AppendLine(Utils.ToMarkdownImage(Title, $"{FileService.SanitizeFileName(Title)}.jpg") );
         
         sb.Append(this.ToMarkdownList(nameof(InspiredBy)));
 
@@ -156,8 +157,8 @@ public class SynthesizedRecipe : IRecipe, ISynthesizedRecipe
 public class RecipeAnalysis
 {
     public int QualityScore { get; set; }
-    public required string Analysis { get; set; }
-    public required string Suggestions { get; set; }
+    public string? Analysis { get; set; }
+    public string? Suggestions { get; set; }
 }
 
 public class AutoMapperProfile : Profile

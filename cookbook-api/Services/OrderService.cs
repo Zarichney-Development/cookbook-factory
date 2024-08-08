@@ -112,7 +112,7 @@ public class OrderService(
                 }
 
                 // Add image to recipe
-                result.ImageUrl = GetImageUrl(result, recipes);
+                result.ImageUrls = GetImageUrls(result, recipes);
 
                 WriteRecipeToOrderDir(order.OrderId, recipeName, result);
                 completedRecipes.Enqueue(result);
@@ -124,7 +124,7 @@ public class OrderService(
         }
     }
 
-    private string? GetImageUrl(ISynthesizedRecipe result, List<Recipe> recipes)
+    private List<string> GetImageUrls(ISynthesizedRecipe result, List<Recipe> recipes)
     {
         var relevantRecipes = recipes.Where(r => result.InspiredBy?.Contains(r.RecipeUrl!) ?? false).ToList();
 
@@ -136,8 +136,8 @@ public class OrderService(
 
         return relevantRecipes
             .Where(r => !string.IsNullOrWhiteSpace(r.ImageUrl))
-            .Select(r => r.ImageUrl)
-            .FirstOrDefault();
+            .Select(r => r.ImageUrl!)
+            .ToList();
     }
 
     private void CreateOrderDirectory(CookbookOrder order)
@@ -164,28 +164,24 @@ public class OrderService(
             recipe
         );
 
-    public void CompilePdf(CookbookOrder order)
+    public async Task CompilePdf(CookbookOrder order)
     {
         if (!(order.Recipes?.Count > 0))
         {
             throw new Exception("No recipes found for order");
         }
 
-        var markdown = new List<string>();
-
         foreach (var recipe in order.Recipes)
         {
-            var recipeMarkdown = recipe.ToMarkdown();
             fileService.WriteToFile(
                 Path.Combine(config.OutputDirectory, order.OrderId, "recipes"),
                 recipe.Title,
-                recipeMarkdown,
+                recipe.ToMarkdown(),
                 "md"
             );
-            markdown.Add(recipeMarkdown);
         }
 
-        var pdf = pdfCompiler.CompileCookbook(markdown);
+        var pdf = await pdfCompiler.CompileCookbook(order);
 
         fileService.WriteToFile(
             Path.Combine(config.OutputDirectory, order.OrderId),

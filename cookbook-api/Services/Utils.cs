@@ -49,7 +49,7 @@ public static class Utils
 
     public static string ToMarkdownProperty(string name, string value)
     {
-        return $"**{name}:** {value}";
+        return $"**{name}:** {value}\t";
     }
 
     public static string ToMarkdownList(IEnumerable<string> items, bool numbered = false)
@@ -93,7 +93,7 @@ public static class Utils
     public static string ToMarkdownTable(List<List<string>> rows)
     {
         var headers = new List<string>();
-        foreach (var row in rows)
+        foreach (var unused in rows)
         {
             headers.Add(" ");
         }
@@ -104,6 +104,7 @@ public static class Utils
     public static string ToMarkdownTable(List<string> headers, List<List<string>> rows)
     {
         var sb = new StringBuilder();
+        sb.AppendLine("{.tableStyle}");
         sb.AppendLine($"| {string.Join(" | ", headers)} |");
         sb.AppendLine($"| {string.Join(" | ", headers.Select(_ => "---"))} |");
         foreach (var row in rows)

@@ -103,43 +103,24 @@ public class FileService : IDisposable
         }
     }
 
-    private static string SanitizeFileName(string fileName)
+    internal static string SanitizeFileName(string fileName)
     {
-        return string.Join("_", fileName.Split(Path.GetInvalidFileNameChars()));
+        var invalidChars = Path.GetInvalidFileNameChars();
+        invalidChars.Append(' ');
+        invalidChars.Append('-');
+        return string.Join("_", fileName.Split());
     }
 
     public async Task<T> ReadFromFile<T>(string directory, string filename, string extension = "json")
     {
         var data = await LoadExistingData(directory, filename, extension);
 
-        if (data is JsonElement jsonElement)
+        if (data is not JsonElement jsonElement)
         {
-            if (jsonElement.ValueKind == JsonValueKind.Array)
-            {
-                // If it's an array, deserialize to List<T>
-                var list = Utils.Deserialize<List<T>>(jsonElement.GetRawText());
-                // If T is already List<something>, return it directly
-                if (typeof(T).IsGenericType && typeof(T).GetGenericTypeDefinition() == typeof(List<>))
-                {
-                    return (T)(object)list!;
-                }
-
-                // Otherwise, create a new instance of T (assuming it has a parameterless constructor) and set its only property to the list
-                var result = Activator.CreateInstance<T>();
-                var property = typeof(T).GetProperties().FirstOrDefault();
-                if (property != null)
-                {
-                    property.SetValue(result, list);
-                }
-
-                return result;
-            }
-
-            // If it's an object, deserialize to T
-            return Utils.Deserialize<T>(jsonElement.GetRawText())!;
+            return default!;
         }
 
-        return default!;
+        return Utils.Deserialize<T>(jsonElement.GetRawText())!;
     }
 
     private async Task<object?> LoadExistingData(string directory, string filename, string extension = "json")

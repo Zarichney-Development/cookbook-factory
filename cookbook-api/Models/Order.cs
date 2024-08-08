@@ -23,6 +23,9 @@ public class CookbookOrderSubmission
 
 public class CookbookOrder : CookbookOrderSubmission
 {
+    [JsonConstructor]
+    public CookbookOrder() { }
+
     public CookbookOrder(CookbookOrderSubmission submission, List<string> recipeList)
     {
         OrderId = GenerateOrderId();
