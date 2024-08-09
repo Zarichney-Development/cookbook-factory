@@ -1,51 +1,34 @@
 using System.Text;
 using AutoMapper;
+using Cookbook.Factory.Prompts;
 using Cookbook.Factory.Services;
 
 namespace Cookbook.Factory.Models;
 
-public class RecipeProposalResult
-{
-    public required List<string> Recipes { get; init; }
-}
 
-public interface IRecipe
+public class Recipe
 {
-    public string Title { get; set; }
-    public string Description { get; set; }
-    public string Servings { get; set; }
-    public string PrepTime { get; set; }
-    public string CookTime { get; set; }
-    public string TotalTime { get; set; }
-    public List<string> Ingredients { get; set; }
-    public List<string> Directions { get; set; }
-    public string Notes { get; set; }
-}
-
-public interface IScrapedRecipe
-{
+    public string? Id { get; set; }
+    public required string Title { get; set; }
+    public required string Description { get; set; }
+    public required string Servings { get; set; }
+    public required string PrepTime { get; set; }
+    public required string CookTime { get; set; }
+    public required string TotalTime { get; set; }
+    public required List<string> Ingredients { get; set; }
+    public required List<string> Directions { get; set; }
+    public required string Notes { get; set; }
+    public bool Cleaned { get; set; }
     public string? RecipeUrl { get; set; }
     public string? ImageUrl { get; set; }
+    public required List<string> Aliases { get; set; }
+    public required string IndexTitle { get; set; }
+    public required Dictionary<string, RelevancyResult> Relevancy { get; set; }
 }
 
-public interface IRelevancyResult
+public class ScrapedRecipe
 {
-    public int RelevancyScore { get; set; }
-    public string? RelevancyReasoning { get; set; }
-}
-
-public class SearchResult
-{
-    public required List<int> SelectedIndices { get; set; }
-}
-
-public interface ICleanedRecipe
-{
-    public bool Cleaned { get; set; }
-}
-
-public class ScrapedRecipe : IRecipe, IScrapedRecipe
-{
+    public string? Id { get; set; }
     public string? RecipeUrl { get; set; }
     public string? ImageUrl { get; set; }
     public string? Title { get; set; }
@@ -59,32 +42,9 @@ public class ScrapedRecipe : IRecipe, IScrapedRecipe
     public required List<string> Directions { get; set; }
 }
 
-public class Recipe : IRecipe, ICleanedRecipe, IRelevancyResult, IScrapedRecipe
+public class CleanedRecipe
 {
-    public required string Title { get; set; }
-    public required string Description { get; set; }
-    public required string Servings { get; set; }
-    public required string PrepTime { get; set; }
-    public required string CookTime { get; set; }
-    public required string TotalTime { get; set; }
-    public required List<string> Ingredients { get; set; }
-    public required List<string> Directions { get; set; }
-    public required string Notes { get; set; }
     public bool Cleaned { get; set; }
-    public int RelevancyScore { get; set; }
-    public string? RelevancyReasoning { get; set; }
-    public string? RecipeUrl { get; set; }
-    public string? ImageUrl { get; set; }
-}
-
-public class RelevancyResult : IRelevancyResult
-{
-    public int RelevancyScore { get; set; }
-    public string? RelevancyReasoning { get; set; }
-}
-
-public class CleanedRecipe : IRecipe
-{
     public required string Title { get; set; }
     public required string Description { get; set; }
     public required string Servings { get; set; }
@@ -96,12 +56,7 @@ public class CleanedRecipe : IRecipe
     public required string Notes { get; set; }
 }
 
-public interface ISynthesizedRecipe
-{
-    public List<string>? InspiredBy { get; set; }
-}
-
-public class SynthesizedRecipe : IRecipe, ISynthesizedRecipe
+public class SynthesizedRecipe
 {
     public required string Title { get; set; }
     public required string Description { get; set; }
@@ -159,20 +114,14 @@ public class SynthesizedRecipe : IRecipe, ISynthesizedRecipe
     }
 }
 
-public class RecipeAnalysis
-{
-    public int QualityScore { get; set; }
-    public string? Analysis { get; set; }
-    public string? Suggestions { get; set; }
-}
-
 public class AutoMapperProfile : Profile
 {
     public AutoMapperProfile()
     {
         CreateMap<CleanedRecipe, Recipe>().ReverseMap();
         CreateMap<ScrapedRecipe, Recipe>()
-            .ForMember(dest => dest.RelevancyScore, opt => opt.MapFrom(src => -1))
+            .ForMember(dest => dest.Aliases, opt => opt.MapFrom(src=> new List<string>()))
+            .ForMember(dest => dest.Relevancy, opt => opt.MapFrom(src => new Dictionary<string, RelevancyResult>()))
             .ReverseMap();
         CreateMap<SynthesizedRecipe, Recipe>().ReverseMap();
     }

@@ -45,7 +45,7 @@ builder.Services.AddMemoryCache();
 
 builder.Services.AddConfigurations(builder.Configuration);
 
-var emailConfig = builder.Services.GetConfig<EmailConfig>();
+var emailConfig = builder.Services.GetService<EmailConfig>();
 
 var graphClient = new GraphServiceClient(new ClientSecretCredential(
     emailConfig.AzureTenantId,
@@ -57,11 +57,16 @@ var graphClient = new GraphServiceClient(new ClientSecretCredential(
     }), new[] { "https://graph.microsoft.com/.default" });
 builder.Services.AddSingleton(graphClient);
 
+var apiKey = builder.Configuration["OpenAiConfig:ApiKey"]
+             ?? throw new InvalidConfigurationException("Missing required configuration for Azure/OpenAI API key.");
+
+builder.Services.AddSingleton(new OpenAIClient(apiKey));
+
 builder.Services.AddPrompts(typeof(PromptBase).Assembly);
 builder.Services.AddSingleton<FileService>();
 builder.Services.AddSingleton<IEmailService, EmailService>();
 builder.Services.AddSingleton<ITemplateService, TemplateService>();
-builder.Services.AddSingleton<IBackgroundTaskQueue>(ctx => new BackgroundTaskQueue(100));
+builder.Services.AddSingleton<IBackgroundTaskQueue>(_ => new BackgroundTaskQueue(100));
 builder.Services.AddHostedService<BackgroundTaskService>();
 
 builder.Services.AddTransient<RecipeService>();
@@ -70,12 +75,11 @@ builder.Services.AddTransient<WebScraperService>();
 builder.Services.AddTransient<PdfCompiler>();
 builder.Services.AddTransient<ILlmService, LlmService>();
 
+builder.Services.AddSingleton<IRecipeRepository, RecipeRepository>();
+var recipeRepository = builder.Services.GetService<IRecipeRepository>();
+await recipeRepository.InitializeAsync();
+
 builder.Services.AddEndpointsApiExplorer();
-
-var apiKey = builder.Configuration["OpenAiConfig:ApiKey"]
-             ?? throw new InvalidConfigurationException("Missing required configuration for Azure/OpenAI API key.");
-
-builder.Services.AddSingleton(new OpenAIClient(apiKey));
 
 builder.Services.AddSwaggerGen(c =>
 {

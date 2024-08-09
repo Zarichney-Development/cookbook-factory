@@ -1,4 +1,6 @@
 using System.Collections.Concurrent;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using AngleSharp;
 using AngleSharp.Dom;
@@ -22,7 +24,7 @@ public class WebScraperService(WebscraperConfig config, ChooseRecipesPrompt choo
 
     private static Dictionary<string, Dictionary<string, string>>? _siteSelectors;
 
-    internal async Task<List<ScrapedRecipe>> ScrapeForRecipesAsync(string query)
+    internal async Task<List<ScrapedRecipe>> ScrapeForRecipesAsync(string query, string? targetSite = null)
     {
         // Pulls the list of sites from config with their selectors
         _siteSelectors = await LoadSiteSelectors();
@@ -43,6 +45,11 @@ public class WebScraperService(WebscraperConfig config, ChooseRecipesPrompt choo
                 continue;
             }
 
+            if (!string.IsNullOrEmpty(targetSite) && site.Key != targetSite)
+            {
+                continue;
+            }
+
             await semaphore.WaitAsync();
 
             tasks.Add(Task.Run(async () =>
@@ -54,13 +61,16 @@ public class WebScraperService(WebscraperConfig config, ChooseRecipesPrompt choo
 
                     // Conditionally use LLM to return the most relevant URLs
                     var relevantUrls = await SelectMostRelevantUrls(site.Key, recipeUrls, query);
-                    
-                    // Use the site's selectors to extract the text from the html and return the data
-                    var scrapedRecipes = await ScrapeSiteForRecipesAsync(site.Key, relevantUrls, query);
 
-                    foreach (var recipe in scrapedRecipes)
+                    if (recipeUrls.Count > 0)
                     {
-                        allRecipes.Add(recipe);
+                        // Use the site's selectors to extract the text from the html and return the data
+                        var scrapedRecipes = await ScrapeSiteForRecipesAsync(site.Key, relevantUrls, query);
+
+                        foreach (var recipe in scrapedRecipes)
+                        {
+                            allRecipes.Add(recipe);
+                        }
                     }
                 }
                 catch (Exception ex)
@@ -77,7 +87,7 @@ public class WebScraperService(WebscraperConfig config, ChooseRecipesPrompt choo
         await Task.WhenAll(tasks);
 
         var recipes = allRecipes.ToList();
-        _log.Information("Web scraped {count} recipes for {query}", recipes.Count, query);
+        _log.Information("Web scraped a total of {count} recipes for {query}", recipes.Count, query);
 
         return recipes;
     }
@@ -88,7 +98,7 @@ public class WebScraperService(WebscraperConfig config, ChooseRecipesPrompt choo
         {
             return recipeUrls;
         }
-        
+
         try
         {
             var result = await llmService.CallFunction<SearchResult>(
@@ -140,7 +150,7 @@ public class WebScraperService(WebscraperConfig config, ChooseRecipesPrompt choo
         if (string.IsNullOrEmpty(html))
         {
             _log.Warning("Failed to retrieve HTML content for '{query}' on {site}", query, site);
-            return new List<string>();
+            return [];
         }
 
         var browserContext = BrowsingContext.New(Configuration.Default);
@@ -150,13 +160,14 @@ public class WebScraperService(WebscraperConfig config, ChooseRecipesPrompt choo
         var recipeUrls = links.Select(link => link.GetAttribute("href")).Distinct()
             .Where(url => !string.IsNullOrEmpty(url)).ToList();
 
-        if (!recipeUrls.Any())
+        if (recipeUrls.Count == 0)
         {
-            _log.Information("No recipes found for '{query}' on {site}", query, site);
-            return new List<string>();
+            _log.Information("No recipes found for '{query}' on site {site}", query, site);
+            return [];
         }
 
-        _log.Information("Found {count} recipes for '{query}' on {site}", recipeUrls.Count, query, site);
+        _log.Information("Returned {count} search results for recipe '{query}' on site: {site}", recipeUrls.Count,
+            query, site);
         return recipeUrls!;
     }
 
@@ -166,9 +177,10 @@ public class WebScraperService(WebscraperConfig config, ChooseRecipesPrompt choo
         var scrapedRecipes = new ConcurrentQueue<ScrapedRecipe>();
         var semaphore = new SemaphoreSlim(config.MaxParallelTasks);
 
-        _log.Information("Scraping the first {count} recipes from {site} for {recipe}", config.MaxNumRecipesPerSite,
-            site,
-            query);
+        var amountToScrap = Math.Min(recipeUrls.Count, config.MaxNumRecipesPerSite);
+
+        _log.Information("Scraping {count} recipes from site '{site}' for recipe '{recipe}'",
+            amountToScrap, site, query);
 
         await Parallel.ForEachAsync(recipeUrls.TakeWhile(_ => scrapedRecipes.Count < config.MaxNumRecipesPerSite),
             new ParallelOptions { MaxDegreeOfParallelism = config.MaxParallelTasks },
@@ -212,6 +224,7 @@ public class WebScraperService(WebscraperConfig config, ChooseRecipesPrompt choo
 
         return new ScrapedRecipe
         {
+            Id = GenerateUrlFingerprint(url),
             Ingredients = ExtractList(htmlDoc, selectors["ingredients"])
                           ?? throw new Exception("No ingredients found"),
             Directions = ExtractList(htmlDoc, selectors["directions"])
@@ -227,6 +240,21 @@ public class WebScraperService(WebscraperConfig config, ChooseRecipesPrompt choo
             ImageUrl = ExtractText(htmlDoc, selectors["image"], "data-lazy-src") ??
                        ExtractText(htmlDoc, selectors["image"], "src"),
         };
+    }
+
+    public static string GenerateUrlFingerprint(string url)
+    {
+        using (SHA256 sha256 = SHA256.Create())
+        {
+            byte[] bytes = sha256.ComputeHash(Encoding.UTF8.GetBytes(url));
+            StringBuilder builder = new StringBuilder();
+            foreach (byte b in bytes)
+            {
+                builder.Append(b.ToString("x2"));
+            }
+
+            return builder.ToString();
+        }
     }
 
     private string? ExtractText(IDocument document, string selector, string? attribute = null)

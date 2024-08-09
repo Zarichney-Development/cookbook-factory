@@ -105,3 +105,10 @@ public class AnalyzeRecipePrompt : PromptBase
         })
     };
 }
+
+public class RecipeAnalysis
+{
+    public int QualityScore { get; set; }
+    public string? Analysis { get; set; }
+    public string? Suggestions { get; set; }
+}

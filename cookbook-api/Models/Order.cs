@@ -41,7 +41,7 @@ public class CookbookOrder : CookbookOrderSubmission
 
     public string OrderId { get; set; }
     public List<string> RecipeList { get; set; }
-    public List<SynthesizedRecipe>? Recipes { get; set; }
+    public List<SynthesizedRecipe>? SynthesizedRecipes { get; set; }
 }
 
 public class CookbookContent

@@ -22,10 +22,10 @@ public class RecipeConfig : IConfig
 }
 
 public class RecipeService(
+    IRecipeRepository recipeRepository,
     RecipeConfig config,
     ILlmService llmService,
     WebScraperService webscraper,
-    FileService fileService,
     IMapper mapper,
     RankRecipePrompt rankRecipePrompt,
     CleanRecipePrompt cleanRecipePrompt,
@@ -122,47 +122,60 @@ public class RecipeService(
     {
         acceptableScore ??= config.AcceptableScoreThreshold;
 
-        // First, attempt to find and load existing JSON file
-        var recipes = await fileService.ReadFromFile<List<Recipe>?>(config.OutputDirectory, query) ??
-                      new List<Recipe>();
+        // First, attempt to find from JSON files
+        var recipes = await recipeRepository.SearchRecipes(query);
 
         if (recipes.Any())
         {
             _log.Information("Found {count} cached recipes for query '{query}'.", recipes.Count, query);
         }
-        else if (scrape && recipes.Count(r => r.Cleaned && r.RelevancyScore >= acceptableScore) <
-                 config.RecipesToReturnPerRetrieval)
-        {
-            // If no existing file found, proceed with web scraping
-            recipes = mapper.Map<List<Recipe>>(await webscraper.ScrapeForRecipesAsync(query));
-        }
 
-        var unrankedRecipes = recipes.Where(r => string.IsNullOrEmpty(r.RelevancyReasoning)).ToList();
+        var unrankedRecipes = recipes.Where(r => !r.Relevancy.ContainsKey(query)).ToList();
         if (unrankedRecipes.Any())
         {
             await RankRecipesAsync(unrankedRecipes, query, acceptableScore);
         }
 
-        // To save on llm cost, only bother cleaning those with a good enough score
-        var topUncleanedRecipes = recipes
-            .Where(r => !r.Cleaned)
-            .Where(r => r.RelevancyScore >= acceptableScore)
-            .ToList();
-
-        if (topUncleanedRecipes.Any())
+        if (scrape && recipes.Count(r => r.Cleaned && r.Relevancy[query].Score >= acceptableScore) <
+            config.RecipesToReturnPerRetrieval)
         {
-            await CleanRecipesAsync(topUncleanedRecipes);
+            // If no existing file found, proceed with web scraping
+
+            var result = await webscraper.ScrapeForRecipesAsync(query);
+
+            // Exclude any that didn't get initially picked up by the repository search but was scraped again
+            var newRecipes = result.Where(r => !recipeRepository.ContainsRecipe(r.Id!));
+
+            recipes = mapper.Map<List<Recipe>>(newRecipes);
         }
 
-        recipes = recipes.OrderByDescending(r => r.RelevancyScore).ToList();
-
-        if (recipes.Any())
+        unrankedRecipes = recipes.Where(r => !r.Relevancy.ContainsKey(query)).ToList();
+        if (unrankedRecipes.Any())
         {
-            fileService.WriteToFile(config.OutputDirectory, query, recipes);
+            await RankRecipesAsync(unrankedRecipes, query, acceptableScore);
+        }
+
+        // Strip out anything that the rank deemed is not a recipe
+        recipes = recipes
+            .Where(r => r.Relevancy[query].Score > 0)
+            .OrderByDescending(r => r.Relevancy[query].Score)
+            .ToList();
+
+        var uncleanedRecipes = recipes
+            .Where(r => !r.Cleaned)
+            .ToList();
+
+        if (uncleanedRecipes.Count != 0)
+        {
+            await CleanRecipesAsync(uncleanedRecipes);
+        }
+
+        if (recipes.Count != 0)
+        {
+            await recipeRepository.AddRecipes(recipes);
         }
 
         return recipes
-            .Where(r => r.Cleaned)
             .Take(config.RecipesToReturnPerRetrieval)
             .ToList();
     }
@@ -175,6 +188,8 @@ public class RecipeService(
             rankRecipePrompt.GetFunction()
         );
 
+        result.Query = query;
+
         _log.Information("Relevancy filter result: {@Result}", result);
 
         return result;
@@ -185,9 +200,11 @@ public class RecipeService(
         acceptableScore ??= config.AcceptableScoreThreshold;
 
         // Don't rank if there are already enough relevant recipes
-        if (recipes.Count(r => r.RelevancyScore >= acceptableScore) >= config.MinRelevantRecipes)
+        if (recipes
+                .Where(r=> r.Relevancy.ContainsKey(query))
+                .Count(r => r.Relevancy[query].Score >= acceptableScore) >= config.MinRelevantRecipes)
         {
-            return recipes.OrderByDescending(r => r.RelevancyScore).ToList();
+            return recipes.OrderByDescending(r => r.Relevancy[query].Score).ToList();
         }
 
         var rankedRecipes = new ConcurrentQueue<Recipe>();
@@ -202,7 +219,7 @@ public class RecipeService(
                 {
                     if (ct.IsCancellationRequested) return;
 
-                    if (recipe.RelevancyScore >= acceptableScore)
+                    if (recipe.Relevancy.TryGetValue(query, out var value) && value.Score >= acceptableScore)
                     {
                         rankedRecipes.Enqueue(recipe);
                         if (relevantRecipeCount.Increment() >= config.MinRelevantRecipes)
@@ -218,12 +235,11 @@ public class RecipeService(
                     {
                         var result = await RankRecipe(recipe, query);
 
-                        recipe.RelevancyScore = result.RelevancyScore;
-                        recipe.RelevancyReasoning = result.RelevancyReasoning;
+                        recipe.Relevancy[query] = result;
 
                         rankedRecipes.Enqueue(recipe);
 
-                        if (recipe.RelevancyScore >= acceptableScore &&
+                        if (recipe.Relevancy[query].Score >= acceptableScore &&
                             relevantRecipeCount.Increment() >= config.MinRelevantRecipes)
                         {
                             await cts.CancelAsync();
@@ -240,7 +256,7 @@ public class RecipeService(
             // Good to return
         }
 
-        return rankedRecipes.OrderByDescending(r => r.RelevancyScore).ToList();
+        return rankedRecipes.OrderByDescending(r => r.Relevancy[query].Score).ToList();
     }
 
     private async Task<List<Recipe>> CleanRecipesAsync(List<Recipe> recipes)
@@ -280,7 +296,7 @@ public class RecipeService(
 
         try
         {
-            var cleanedRecipe = await llmService.CallFunction<Recipe>(
+            var cleanedRecipe = await llmService.CallFunction<CleanedRecipe>(
                 cleanRecipePrompt.SystemPrompt,
                 cleanRecipePrompt.GetUserPrompt(recipe),
                 cleanRecipePrompt.GetFunction()

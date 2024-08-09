@@ -30,7 +30,7 @@ public class PdfCompiler(PdfCompilerConfig config)
 
     public async Task<PdfDocument> CompileCookbook(CookbookOrder order)
     {
-        var recipePages = order.Recipes!;
+        var recipePages = order.SynthesizedRecipes!;
 
         var pdf = new MarkdownToPdf()
             .DefaultFont(config.FontName, config.FontSize)
@@ -148,12 +148,12 @@ public class PdfCompiler(PdfCompilerConfig config)
         }
         catch (HttpRequestException ex)
         {
-            _log.Error(ex, "Error downloading image from URL: {Url}", url);
+            _log.Warning(ex, "Error downloading image from URL: {Url}", url);
             throw;
         }
         catch (Exception ex)
         {
-            _log.Error(ex, "Error processing image for recipe: {FileName}", fileName);
+            _log.Warning(ex, "Error processing image for recipe: {FileName}", fileName);
             throw;
         }
     }

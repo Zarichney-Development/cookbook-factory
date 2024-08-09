@@ -242,7 +242,7 @@ public static class ConfigurationExtensions
         }
     }
 
-    public static T GetConfig<T>(this IServiceCollection services) where T : class, IConfig
+    public static T GetService<T>(this IServiceCollection services) where T : class
     {
         return services.BuildServiceProvider().GetRequiredService<T>();
     }

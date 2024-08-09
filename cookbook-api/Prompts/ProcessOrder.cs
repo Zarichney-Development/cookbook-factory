@@ -105,3 +105,8 @@ public class ProcessOrderPrompt : PromptBase
         })
     };
 }
+
+public class RecipeProposalResult
+{
+    public required List<string> Recipes { get; init; }
+}

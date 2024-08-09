@@ -9,7 +9,7 @@ using ILogger = Serilog.ILogger;
 
 namespace Cookbook.Factory.Services;
 
-public class OpenAiConfig : IConfig
+public class LlmConfig : IConfig
 {
     public string ModelName { get; init; } = LlmModels.Gpt4Omini;
     public int RetryAttempts { get; init; } = 5;
@@ -29,7 +29,7 @@ public interface ILlmService
     Task<string> CreateRun(string threadId, string assistantId, bool toolConstraintRequired = false,
         bool parallelToolCallsEnabled = false);
 
-    Task<ChatCompletion> GetCompletion(IEnumerable<ChatMessage> messages, ChatCompletionOptions? options = null);
+    Task<ChatCompletion> GetCompletion(List<ChatMessage> messages, ChatCompletionOptions? options = null);
 
     Task<(bool isComplete, RunStatus status)> GetRun(string threadId, string runId);
     Task<string> CancelRun(string threadId, string runId);
@@ -41,7 +41,7 @@ public interface ILlmService
     Task<string> GetToolCallId(string threadId, string runId, string functionName);
 }
 
-public class LlmService(OpenAIClient client, IMapper mapper, OpenAiConfig config) : ILlmService
+public class LlmService(OpenAIClient client, IMapper mapper, LlmConfig config) : ILlmService
 {
     private static readonly ILogger Log = Serilog.Log.ForContext<LlmService>();
 
@@ -226,8 +226,8 @@ public class LlmService(OpenAIClient client, IMapper mapper, OpenAiConfig config
     public async Task<T> CallFunction<T>(string systemPrompt, string userPrompt, FunctionDefinition function)
     {
         Log.Information(
-            "Getting response from model. System prompt: {systemPrompt}, User prompt: {userPrompt}, Function name: {functionName}, Function description: {functionDescription}, Function parameters: {functionParameters}",
-            systemPrompt, userPrompt, function.Name, function.Description, function.Parameters);
+            "Getting response from model. System prompt: {systemPrompt}, User prompt: {userPrompt}, Function: {@function}",
+            systemPrompt, userPrompt, function);
 
         var messages = new List<ChatMessage>
         {
@@ -235,18 +235,20 @@ public class LlmService(OpenAIClient client, IMapper mapper, OpenAiConfig config
             new UserChatMessage(userPrompt)
         };
 
-        return await _retryPolicy.ExecuteAsync(async () => await CallFunction<T>(function, messages));
+        var result = await _retryPolicy.ExecuteAsync(async () => await CallFunction<T>(function, messages));
+
+        return result;
     }
 
 
-    private async Task<T> CallFunction<T>(FunctionDefinition function, IEnumerable<ChatMessage> messages)
+    private async Task<T> CallFunction<T>(FunctionDefinition function, List<ChatMessage> messages)
         => await CallFunction<T>(messages, ChatTool.CreateFunctionTool(
             functionName: function.Name,
             functionDescription: function.Description,
             functionParameters: BinaryData.FromString(function.Parameters)
         ));
 
-    private async Task<T> CallFunction<T>(IEnumerable<ChatMessage> messages, ChatTool functionTool)
+    private async Task<T> CallFunction<T>(List<ChatMessage> messages, ChatTool functionTool)
     {
         var chatCompletion = await GetCompletion(messages, new ChatCompletionOptions
         {
@@ -288,16 +290,20 @@ public class LlmService(OpenAIClient client, IMapper mapper, OpenAiConfig config
         throw new Exception("Failed to get a valid response from the model.");
     }
 
-    public async Task<ChatCompletion> GetCompletion(IEnumerable<ChatMessage> messages,
+    public async Task<ChatCompletion> GetCompletion(List<ChatMessage> messages,
         ChatCompletionOptions? options = null)
     {
         return await _retryPolicy.ExecuteAsync(async () =>
         {
             var chatClient = client.GetChatClient(config.ModelName);
-
+            
             try
             {
-                return await chatClient.CompleteChatAsync(messages, options);
+                var result = await chatClient.CompleteChatAsync(messages, options);
+                
+                Log.Information("Received response from model: {@result}", result);
+
+                return result;
             }
             catch (Exception e)
             {

@@ -1,6 +1,8 @@
 using System.Collections.Concurrent;
 using Cookbook.Factory.Models;
 using Cookbook.Factory.Prompts;
+using Polly;
+using Polly.Retry;
 using Serilog;
 using ILogger = Serilog.ILogger;
 
@@ -20,10 +22,23 @@ public class OrderService(
     RecipeService recipeService,
     ProcessOrderPrompt processOrderPrompt,
     PdfCompiler pdfCompiler,
-    IEmailService emailService
+    IEmailService emailService,
+    LlmConfig llmConfig
 )
 {
     private readonly ILogger _log = Log.ForContext<OrderService>();
+
+    private readonly AsyncRetryPolicy _retryPolicy = Policy
+        .Handle<Exception>()
+        .WaitAndRetryAsync(
+            retryCount: llmConfig.RetryAttempts,
+            sleepDurationProvider: _ => TimeSpan.FromSeconds(1),
+            onRetry: (exception, _, retryCount, context) =>
+            {
+                Log.Warning(exception, "Attempt {retryCount}: Retrying due to {exception}. Retry Context: {@Context}",
+                    retryCount, exception.Message, context);
+            }
+        );
 
     public async Task<CookbookOrder> ProcessOrderSubmission(CookbookOrderSubmission submission)
     {
@@ -54,13 +69,13 @@ public class OrderService(
     public async Task<CookbookOrder> GenerateCookbookAsync(CookbookOrder order, bool isSample = false)
     {
         var completedRecipes = new ConcurrentQueue<SynthesizedRecipe>();
-        
+
         var maxParralelTasks = config.MaxParallelTasks;
         if (isSample)
         {
             maxParralelTasks = Math.Min(maxParralelTasks, config.MaxSampleRecipes);
         }
-        
+
         var semaphore = new SemaphoreSlim(maxParralelTasks);
         var processingTasks = new List<Task>();
 
@@ -100,7 +115,7 @@ public class OrderService(
             _log.Error(ex, "Unhandled exception in one of the processing tasks.");
         }
 
-        order.Recipes = completedRecipes.ToList();
+        order.SynthesizedRecipes = completedRecipes.ToList();
 
         UpdateOrderFile(order);
 
@@ -149,7 +164,7 @@ public class OrderService(
         }
     }
 
-    private List<string> GetImageUrls(ISynthesizedRecipe result, List<Recipe> recipes)
+    private List<string> GetImageUrls(SynthesizedRecipe result, List<Recipe> recipes)
     {
         var relevantRecipes = recipes.Where(r => result.InspiredBy?.Contains(r.RecipeUrl!) ?? false).ToList();
 
@@ -191,12 +206,12 @@ public class OrderService(
 
     public async Task CompilePdf(CookbookOrder order)
     {
-        if (!(order.Recipes?.Count > 0))
+        if (!(order.SynthesizedRecipes?.Count > 0))
         {
             throw new Exception("Cannot assemble pdf as this order contains no recipes");
         }
 
-        foreach (var recipe in order.Recipes)
+        foreach (var recipe in order.SynthesizedRecipes)
         {
             fileService.WriteToFile(
                 Path.Combine(config.OutputDirectory, order.OrderId, "recipes"),
@@ -207,7 +222,7 @@ public class OrderService(
         }
 
         var pdf = await pdfCompiler.CompileCookbook(order);
-        
+
         _log.Information("Cookbook compiled for order {OrderId}. Writing to disk", order.OrderId);
 
         fileService.WriteToFile(
@@ -229,20 +244,24 @@ public class OrderService(
             { "unsubscribe_link", "https://zarichney.com/unsubscribe" },
         };
 
-        var order = await GetOrder(orderId);
-        
-        _log.Information("Retrieved order {OrderId} for email", orderId);
-        
-        var pdf = await fileService.ReadFromFile<byte[]>(Path.Combine(config.OutputDirectory, orderId), "Cookbook", "pdf");
-        
-        _log.Information("Emailing cookbook to {Email}", order.Email);
+        await _retryPolicy.ExecuteAsync(async () =>
+        {
+            var order = await GetOrder(orderId);
 
-        await emailService.SendEmail(
-            order.Email,
-            emailTitle,
-            "cookbook-ready",
-            templateData,
-            pdf
-        );
+            _log.Information("Retrieved order {OrderId} for email", orderId);
+
+            var pdf = await fileService.ReadFromFile<byte[]>(Path.Combine(config.OutputDirectory, orderId), "Cookbook",
+                "pdf");
+
+            _log.Information("Emailing cookbook to {Email}", order.Email);
+
+            await emailService.SendEmail(
+                order.Email,
+                emailTitle,
+                "cookbook-ready",
+                templateData,
+                pdf
+            );
+        });
     }
 }

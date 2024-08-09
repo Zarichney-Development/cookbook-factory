@@ -47,3 +47,8 @@ public class ChooseRecipesPrompt : PromptBase
         })
     };
 }
+
+public class SearchResult
+{
+    public required List<int> SelectedIndices { get; set; }
+}

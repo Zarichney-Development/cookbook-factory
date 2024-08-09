@@ -106,7 +106,7 @@ public class ApiController(
     }
 
     [HttpGet("recipe/scrape")]
-    public async Task<IActionResult> SearchRecipes([FromQuery] string query)
+    public async Task<IActionResult> SearchRecipes([FromQuery] string query, [FromQuery] string? site = null)
     {
         if (string.IsNullOrWhiteSpace(query))
         {
@@ -116,7 +116,7 @@ public class ApiController(
 
         try
         {
-            var recipes = await webScraperService.ScrapeForRecipesAsync(query);
+            var recipes = await webScraperService.ScrapeForRecipesAsync(query, site);
 
             if (recipes.Count == 0)
             {
