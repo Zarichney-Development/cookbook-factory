@@ -5,7 +5,6 @@ using Cookbook.Factory.Services;
 
 namespace Cookbook.Factory.Models;
 
-
 public class Recipe
 {
     public string? Id { get; set; }
@@ -68,7 +67,7 @@ public class SynthesizedRecipe
     public required List<string> Directions { get; set; }
     public required string Notes { get; set; }
     public List<string>? InspiredBy { get; set; }
-    
+
     public List<string>? ImageUrls { get; set; }
 
     public int? QualityScore { get; set; }
@@ -84,18 +83,18 @@ public class SynthesizedRecipe
         Analysis = analysisResult.Analysis;
         Suggestions = analysisResult.Suggestions;
     }
-    
+
     public string ToMarkdown()
     {
         var sb = new StringBuilder();
 
         sb.Append(this.ToMarkdownHeader(nameof(Title)));
-        
+
         sb.AppendLine(this.ToMarkdownProperty(nameof(Servings)));
-        
+
         sb.AppendLine(this.ToMarkdownSection(nameof(Description), false));
         sb.AppendLine(Utils.ToMarkdownHorizontalRule());
-        
+
         sb.Append(this.ToMarkdownProperty(nameof(PrepTime)));
         sb.Append(this.ToMarkdownProperty(nameof(CookTime)));
         sb.Append(this.ToMarkdownProperty(nameof(TotalTime)));
@@ -105,9 +104,12 @@ public class SynthesizedRecipe
         sb.Append(this.ToMarkdownNumberedList(nameof(Directions)));
         sb.Append(this.ToMarkdownSection(nameof(Notes)));
         sb.AppendLine();
-        
-        sb.AppendLine(Utils.ToMarkdownImage(Title, $"{FileService.SanitizeFileName(Title)}.jpg") );
-        
+
+        if (ImageUrls?.Count > 0)
+        {
+            sb.AppendLine(Utils.ToMarkdownImage(Title, $"{FileService.SanitizeFileName(Title)}.jpg"));
+        }
+
         sb.Append(this.ToMarkdownList(nameof(InspiredBy)));
 
         return sb.ToString().Trim();
@@ -120,7 +122,7 @@ public class AutoMapperProfile : Profile
     {
         CreateMap<CleanedRecipe, Recipe>().ReverseMap();
         CreateMap<ScrapedRecipe, Recipe>()
-            .ForMember(dest => dest.Aliases, opt => opt.MapFrom(src=> new List<string>()))
+            .ForMember(dest => dest.Aliases, opt => opt.MapFrom(src => new List<string>()))
             .ForMember(dest => dest.Relevancy, opt => opt.MapFrom(src => new Dictionary<string, RelevancyResult>()))
             .ReverseMap();
         CreateMap<SynthesizedRecipe, Recipe>().ReverseMap();

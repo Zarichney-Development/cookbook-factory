@@ -157,8 +157,8 @@ public class RecipeService(
 
         // Strip out anything that the rank deemed is not a recipe
         recipes = recipes
-            .Where(r => r.Relevancy[query].Score > 0)
-            .OrderByDescending(r => r.Relevancy[query].Score)
+            .Where(r => !r.Relevancy.ContainsKey(query) || r.Relevancy[query].Score > 0)
+            .OrderByDescending(r => r.Relevancy.TryGetValue(query, out var value) ? value.Score : 0)
             .ToList();
 
         var uncleanedRecipes = recipes

@@ -24,7 +24,7 @@ public class RecipeRepository(
     private readonly ILogger _log = Log.ForContext<RecipeRepository>();
     private readonly ConcurrentDictionary<string, List<Recipe>> _recipes = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentBag<string> _recipeIds = new();
-    
+
     private readonly SemaphoreSlim _initializationLock = new(1, 1);
     private bool _isInitialized;
 
@@ -80,7 +80,7 @@ public class RecipeRepository(
             throw;
         }
     }
-    
+
     public bool ContainsRecipe(string recipeId)
     {
         return _recipeIds.Contains(recipeId);
@@ -138,7 +138,7 @@ public class RecipeRepository(
             _log.Warning("Attempting to search before initialization. Initializing now.");
             await InitializeAsync();
         }
-        
+
         if (string.IsNullOrWhiteSpace(query))
         {
             throw new ArgumentException("Search query cannot be empty", nameof(query));
@@ -155,13 +155,15 @@ public class RecipeRepository(
             }
 
             var fuzzyMatches = _recipes
-                .Where(kvp => kvp.Key.Contains(query, StringComparison.OrdinalIgnoreCase))
+                .Where(kvp =>
+                    kvp.Key.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+                    query.Contains(kvp.Key, StringComparison.OrdinalIgnoreCase))
                 .SelectMany(kvp => kvp.Value)
                 .Distinct()
                 .ToList();
 
             results.AddRange(fuzzyMatches);
-            
+
             var recipes = results
                 .DistinctBy(r => r.Id)
                 .OrderByDescending(r => CalculateRelevanceScore(r, query))
@@ -223,18 +225,18 @@ public class RecipeRepository(
             {
                 AddRecipeToRepository(recipe);
             }
-            
+
             var existingRecipes = await fileService.ReadFromFile<List<Recipe>?>(config.OutputDirectory, title) ?? [];
-            
+
             var newIds = recipeList.Select(r => r.Id).ToList();
             var unchangedRecipes = existingRecipes
                 .Where(r => !newIds.Contains(r.Id))
                 .ToList();
-            
+
             var combinedRecipes = recipeList
                 .Concat(unchangedRecipes)
                 .ToList();
-            
+
             fileService.WriteToFile(config.OutputDirectory, title, combinedRecipes);
         }
     }

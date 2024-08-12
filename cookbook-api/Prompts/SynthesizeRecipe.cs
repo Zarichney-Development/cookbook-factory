@@ -45,7 +45,7 @@ public class SynthesizeRecipePrompt : PromptBase
            - Omit a conclusion.
         7. **Provide Attribution:**
            - List "Inspired by" URLs from original recipes.
-           - Only include those that contributed towards the synthesized recipe.
+           - Include at least the most relevant one, but only include those that contributed towards the synthesized recipe.
         8. **Review and Refine:**
            - The synthesized recipe will be assess for quality assurance.
            - Provide a new revision when provided suggestions for improvement.
