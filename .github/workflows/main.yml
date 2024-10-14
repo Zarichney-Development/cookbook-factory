@@ -18,9 +18,9 @@ jobs:
     - name: Build with dotnet
       run: dotnet build --configuration Release
       
-    - name: Publish .NET Core Project
-      run: dotnet publish -c Release -o dist
-      
+    - name: Publish Application
+      run: dotnet publish --configuration Release --runtime linux-x64 --self-contained true --output ./dist
+    
     - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v1
       with:
@@ -30,7 +30,7 @@ jobs:
         
     - name: Deploy to S3
       run: |
-        aws s3 sync dist s3://${{ secrets.S3_BUCKET }}/zarichney-api --delete
+        aws s3 sync ./dist s3://${{ secrets.S3_BUCKET }}/zarichney-api --delete
         
     - name: Update Auto Scaling group
       run: |
