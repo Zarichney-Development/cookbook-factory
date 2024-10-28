@@ -25,19 +25,15 @@ RUN apt-get update && apt-get install -y \
 # Copy the built application from the previous stage
 COPY --from=build-env /app/out .
 
-# Create the persistent Data directory and set permissions
-RUN mkdir -p /app/Data && chown -R www-data:www-data /app/Data && chmod -R 755 /app/Data
-RUN mkdir -p /app/EmailTemplates && chown -R www-data:www-data /app/EmailTemplates && chmod -R 755 /app/EmailTemplates
-RUN mkdir -p /app/temp && chown -R www-data:www-data /app/temp && chmod -R 755 /app/temp
+# Create necessary directories
+RUN mkdir -p /app/Data/Orders /app/Data/Recipes /app/EmailTemplates /app/temp && \
+    chown -R www-data:www-data /app/Data /app/EmailTemplates /app/temp && \
+    chmod -R 755 /app/Data /app/EmailTemplates /app/temp
 
-# Copy email templates and other necessary files
+# Copy email templates only (since these are part of the application)
 COPY EmailTemplates /app/EmailTemplates
-COPY --from=build-env /app/EmailTemplates /app/EmailTemplates
-COPY Data /app/Data
-COPY --from=build-env /app/Data /app/Data
 
-
-# Set up environment variables (placeholders for sensitive ones)
+# Set up environment variables
 ENV FONTCONFIG_PATH=/etc/fonts
 ENV LoggingConfig__SeqUrl=""
 ENV LlmConfig__ApiKey=""
