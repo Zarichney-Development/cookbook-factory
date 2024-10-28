@@ -17,7 +17,6 @@
         <PackageReference Include="Azure.Identity" Version="1.12.0" />
         <PackageReference Include="Handlebars.Net" Version="2.1.6" />
         <PackageReference Include="Markdig" Version="0.37.0" />
-        <PackageReference Include="MarkdownToPdf" Version="1.0.0-beta" />
         <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="8.0.0"/>
         <PackageReference Include="Microsoft.Graph" Version="5.56.0" />
         <PackageReference Include="OpenAI" Version="2.0.0-beta.8" />
@@ -32,6 +31,9 @@
         <PackageReference Include="Swashbuckle.AspNetCore" Version="6.4.0"/>
         <PackageReference Include="System.Drawing.Common" Version="8.0.7" />
         <PackageReference Include="System.Text.Encoding.CodePages" Version="8.0.0" />
+        <PackageReference Include="SkiaSharp" Version="2.88.8" />
+        <PackageReference Include="SkiaSharp.NativeAssets.Linux" Version="2.88.8" />
+        <PackageReference Include="QuestPDF" Version="2024.10.2" />
     </ItemGroup>
 
     <ItemGroup>
@@ -41,17 +43,63 @@
 
     <ItemGroup>
       <None Remove="Scraper\recipe_scraper.py" />
+      <None Remove="Data\**" />
     </ItemGroup>
 
     <ItemGroup>
-      <_ContentIncludedByDefault Remove="Orders\56cf13d3\buffalo ranch dip.json" />
-      <_ContentIncludedByDefault Remove="Orders\56cf13d3\Order.json" />
-      <_ContentIncludedByDefault Remove="Orders\186fd35d\Order.json" />
-      <_ContentIncludedByDefault Remove="Orders\186fd35d\recipes\buffalo ranch dip.json" />
-      <_ContentIncludedByDefault Remove="Orders\6041cc56\Order.json" />
-      <_ContentIncludedByDefault Remove="Orders\6041cc56\recipes\buffalo ranch dip.json" />
-      <_ContentIncludedByDefault Remove="Orders\a0cc28bc\Order.json" />
-      <_ContentIncludedByDefault Remove="Orders\a0cc28bc\recipes\buffalo ranch dip.json" />
+      <Compile Remove="Data\**" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <EmbeddedResource Remove="Data\**" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <Content Remove="Data\**" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <_ContentIncludedByDefault Remove="Data\Orders\069162e4\Order.json" />
+      <_ContentIncludedByDefault Remove="Data\Orders\069162e4\recipes\Classic_Cheeseburger.json" />
+      <_ContentIncludedByDefault Remove="Data\Orders\069162e4\recipes\rejects\1._Classic_Cheeseburger.json" />
+      <_ContentIncludedByDefault Remove="Data\Orders\069162e4\recipes\rejects\1._Spaghetti_Carbonara.json" />
+      <_ContentIncludedByDefault Remove="Data\Orders\069162e4\recipes\rejects\1._Thai_Green_Curry.json" />
+      <_ContentIncludedByDefault Remove="Data\Orders\069162e4\recipes\Spaghetti_Carbonara.json" />
+      <_ContentIncludedByDefault Remove="Data\Orders\069162e4\recipes\Thai_Green_Curry.json" />
+      <_ContentIncludedByDefault Remove="Data\Recipes\Barramundi.json" />
+      <_ContentIncludedByDefault Remove="Data\Recipes\Basil_Chicken.json" />
+      <_ContentIncludedByDefault Remove="Data\Recipes\Big_Mac.json" />
+      <_ContentIncludedByDefault Remove="Data\Recipes\Burgers.json" />
+      <_ContentIncludedByDefault Remove="Data\Recipes\Carbonara.json" />
+      <_ContentIncludedByDefault Remove="Data\Recipes\Cheeseburger.json" />
+      <_ContentIncludedByDefault Remove="Data\Recipes\Cheeseburger_Casserole.json" />
+      <_ContentIncludedByDefault Remove="Data\Recipes\Cheeseburger_Soup.json" />
+      <_ContentIncludedByDefault Remove="Data\Recipes\Cheeseburger_Sub.json" />
+      <_ContentIncludedByDefault Remove="Data\Recipes\Chicken_Cacciatore.json" />
+      <_ContentIncludedByDefault Remove="Data\Recipes\Coconut_Curry_Soup.json" />
+      <_ContentIncludedByDefault Remove="Data\Recipes\Curry.json" />
+      <_ContentIncludedByDefault Remove="Data\Recipes\Green_Curry.json" />
+      <_ContentIncludedByDefault Remove="Data\Recipes\Hamburger.json" />
+      <_ContentIncludedByDefault Remove="Data\Recipes\Meatballs.json" />
+      <_ContentIncludedByDefault Remove="Data\Recipes\Noodle_Soup.json" />
+      <_ContentIncludedByDefault Remove="Data\Recipes\Orzo.json" />
+      <_ContentIncludedByDefault Remove="Data\Recipes\Panang_Curry.json" />
+      <_ContentIncludedByDefault Remove="Data\Recipes\Pasta_Carbonara.json" />
+      <_ContentIncludedByDefault Remove="Data\Recipes\Pici_Pasta.json" />
+      <_ContentIncludedByDefault Remove="Data\Recipes\Pork_Katsu.json" />
+      <_ContentIncludedByDefault Remove="Data\Recipes\Ramen.json" />
+      <_ContentIncludedByDefault Remove="Data\Recipes\Red_Curry.json" />
+      <_ContentIncludedByDefault Remove="Data\Recipes\Salad.json" />
+      <_ContentIncludedByDefault Remove="Data\Recipes\Salmon.json" />
+      <_ContentIncludedByDefault Remove="Data\Recipes\Shrimp.json" />
+      <_ContentIncludedByDefault Remove="Data\Recipes\Spaghetti.json" />
+      <_ContentIncludedByDefault Remove="Data\Recipes\Spaghetti_Carbonara.json" />
+      <_ContentIncludedByDefault Remove="Data\Recipes\Thai_Curry.json" />
+      <_ContentIncludedByDefault Remove="Data\Recipes\Thai_Green_Curry.json" />
+      <_ContentIncludedByDefault Remove="Data\Recipes\Thai_Noodles.json" />
+      <_ContentIncludedByDefault Remove="Data\Recipes\Tofu.json" />
+      <_ContentIncludedByDefault Remove="Data\Recipes\Vegetable_Soup.json" />
+      <_ContentIncludedByDefault Remove="Data\Recipes\Zucchini_Pasta.json" />
     </ItemGroup>
 
 </Project>

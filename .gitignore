@@ -4,6 +4,6 @@ api.key
 bin
 obj
 .idea
-ai-working-dir
-Recipes
-Orders
+Data
+.env
+appsettings.json

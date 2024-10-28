@@ -2,7 +2,6 @@ using System.Collections.Concurrent;
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
-using PdfSharp.Pdf;
 using Polly;
 using Polly.Retry;
 using Serilog;
@@ -46,8 +45,7 @@ public class FileService : IDisposable
         _processQueueTask.Wait();
         _cancellationTokenSource.Dispose();
     }
-
-    public void WriteToFile(string directory, string filename, object data, string extension = "json")
+    public async Task WriteToFile(string directory, string filename, object data, string extension = "json")
     {
         object content;
         switch (extension.ToLower())
@@ -60,8 +58,32 @@ public class FileService : IDisposable
                 content = data.ToString()!;
                 break;
             case "pdf":
-                if (data is not PdfDocument)
-                    throw new ArgumentException("PDF data must be provided as a pdf document");
+                if (data is not byte[])
+                    throw new ArgumentException("PDF data must be provided as a byte array");
+                content = data;
+                break;
+            default:
+                throw new ArgumentException($"Unsupported file extension: {extension}");
+        }
+
+        await PerformWriteOperationAsync(new WriteOperation(directory, filename, content, extension));
+    }
+    
+    public void WriteToFileAsync(string directory, string filename, object data, string extension = "json")
+    {
+        object content;
+        switch (extension.ToLower())
+        {
+            case "json":
+                content = JsonSerializer.Serialize(data, _jsonSerializerOptions);
+                break;
+            case "md":
+            case "txt":
+                content = data.ToString()!;
+                break;
+            case "pdf":
+                if (data is not byte[])
+                    throw new ArgumentException("PDF data must be provided as a byte array");
                 content = data;
                 break;
             default:
@@ -70,6 +92,7 @@ public class FileService : IDisposable
 
         _writeQueue.Enqueue(new WriteOperation(directory, filename, content, extension));
     }
+
 
     private async Task ProcessQueueAsync()
     {
@@ -98,9 +121,9 @@ public class FileService : IDisposable
             var fileNamePath = Path.Combine(operation.Directory,
                 $"{SanitizeFileName(operation.Filename)}.{operation.Extension}");
 
-            if (operation.Data is PdfDocument pdfDoc)
+            if (operation.Data is byte[] pdfData)
             {
-                pdfDoc.Save(fileNamePath);
+                await File.WriteAllBytesAsync(fileNamePath, pdfData);
             }
             else
             {
@@ -110,6 +133,8 @@ public class FileService : IDisposable
                 await using var streamWriter = new StreamWriter(fileStream, Encoding.UTF8);
                 await streamWriter.WriteAsync(operation.Data.ToString());
             }
+
+            _log.Information("Successfully wrote file: {Filename}", fileNamePath);
         }
         catch (Exception ex)
         {
@@ -131,6 +156,11 @@ public class FileService : IDisposable
         if (data == null)
         {
             return default!;
+        }
+
+        if (extension.ToLower() == "pdf")
+        {
+            return (T)data;
         }
 
         if (data is not JsonElement jsonElement)
@@ -171,6 +201,31 @@ public class FileService : IDisposable
             _log.Error(ex, $"Error loading existing data from '{filePath}'");
             return null;
         }
+    }
+
+    /// <summary>
+    /// Returns an array of file paths in the specified directory
+    /// </summary>
+    /// <param name="directoryPath"></param>
+    /// <returns></returns>
+    public string[] GetFiles(string directoryPath)
+    {
+        if (!Directory.Exists(directoryPath))
+        {
+            Directory.CreateDirectory(directoryPath);
+        }
+        
+        return Directory.GetFiles(directoryPath);
+    }
+
+    public string GetFile(string filePath)
+    {
+        return File.ReadAllText(filePath);
+    }
+
+    public async Task<byte[]> GetFileBytes(string filePath)
+    {
+        return await File.ReadAllBytesAsync(filePath);
     }
 }
 

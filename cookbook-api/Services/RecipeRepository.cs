@@ -52,7 +52,7 @@ public class RecipeRepository(
     {
         try
         {
-            var recipeFiles = Directory.GetFiles(config.OutputDirectory);
+            var recipeFiles = fileService.GetFiles(config.OutputDirectory);
             _log.Information("Found {count} recipe files.", recipeFiles.Length);
 
             var loadTasks = recipeFiles.Select(async file =>
@@ -237,7 +237,7 @@ public class RecipeRepository(
                 .Concat(unchangedRecipes)
                 .ToList();
 
-            fileService.WriteToFile(config.OutputDirectory, title, combinedRecipes);
+            fileService.WriteToFileAsync(config.OutputDirectory, title, combinedRecipes);
         }
     }
 

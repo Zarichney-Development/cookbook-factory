@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Text;
 using Cookbook.Factory.Models;
 using Cookbook.Factory.Prompts;
 using Polly;
@@ -184,53 +185,77 @@ public class OrderService(
         => UpdateOrderFile(order);
 
     private void UpdateOrderFile(CookbookOrder order)
-        => fileService.WriteToFile(
+        => fileService.WriteToFileAsync(
             Path.Combine(config.OutputDirectory, order.OrderId),
             "Order",
             order
         );
 
     private void WriteRejectToOrderDir(string orderId, string recipeName, SynthesizedRecipe recipe)
-        => fileService.WriteToFile(
+        => fileService.WriteToFileAsync(
             Path.Combine(config.OutputDirectory, orderId, "recipes", "rejects"),
             recipeName,
             recipe
         );
 
     private void WriteRecipeToOrderDir(string orderId, string recipeName, SynthesizedRecipe recipe)
-        => fileService.WriteToFile(
+        => fileService.WriteToFileAsync(
             Path.Combine(config.OutputDirectory, orderId, "recipes"),
             recipeName,
             recipe
         );
 
-    public async Task CompilePdf(CookbookOrder order)
+    public async Task CompilePdf(CookbookOrder order, bool waitForWrite = false)
     {
         if (!(order.SynthesizedRecipes?.Count > 0))
         {
             throw new Exception("Cannot assemble pdf as this order contains no recipes");
         }
 
+        var cookbookMarkdown = new StringBuilder();
+
         foreach (var recipe in order.SynthesizedRecipes)
         {
-            fileService.WriteToFile(
+            var recipeMarkdown = recipe.ToMarkdown();
+            fileService.WriteToFileAsync(
                 Path.Combine(config.OutputDirectory, order.OrderId, "recipes"),
                 recipe.Title,
-                recipe.ToMarkdown(),
+                recipeMarkdown,
                 "md"
             );
+            cookbookMarkdown.AppendLine(recipeMarkdown);
         }
+        
+        fileService.WriteToFileAsync(
+            Path.Combine(config.OutputDirectory, order.OrderId),
+            "Cookbook",
+            cookbookMarkdown.ToString(),
+            "md"
+            );
 
         var pdf = await pdfCompiler.CompileCookbook(order);
 
         _log.Information("Cookbook compiled for order {OrderId}. Writing to disk", order.OrderId);
 
-        fileService.WriteToFile(
-            Path.Combine(config.OutputDirectory, order.OrderId),
-            "Cookbook",
-            pdf,
-            "pdf"
-        );
+        if (waitForWrite)
+        {
+            await fileService.WriteToFile(
+                Path.Combine(config.OutputDirectory, order.OrderId),
+                "Cookbook",
+                pdf,
+                "pdf"
+            );
+        }
+        else
+        {
+            // Send to background queue
+            fileService.WriteToFileAsync(
+                Path.Combine(config.OutputDirectory, order.OrderId),
+                "Cookbook",
+                pdf,
+                "pdf"
+            );
+        }
     }
 
     public async Task EmailCookbook(string orderId)
@@ -250,8 +275,11 @@ public class OrderService(
 
             _log.Information("Retrieved order {OrderId} for email", orderId);
 
-            var pdf = await fileService.ReadFromFile<byte[]>(Path.Combine(config.OutputDirectory, orderId), "Cookbook",
-                "pdf");
+            var pdf = await fileService.ReadFromFile<byte[]>(
+                Path.Combine(config.OutputDirectory, orderId),
+                "Cookbook",
+                "pdf"
+            );
 
             _log.Information("Emailing cookbook to {Email}", order.Email);
 

@@ -107,6 +107,7 @@ public static class Utils
         {
             sb.AppendLine($"| {string.Join(" | ", row)} |");
         }
+
         sb.AppendLine();
         return sb.ToString();
     }
@@ -228,16 +229,33 @@ public static class ConfigurationExtensions
 
         foreach (var configType in configTypes)
         {
+            // Use the config type name as the section name
             var sectionName = configType.Name;
-            var config = configuration.GetSection(sectionName).Get(configType);
 
-            if (config == null)
+            // Create an instance of the config object
+            var config = Activator.CreateInstance(configType)!;
+
+            // Attempt to bind the section to the config object
+            configuration.GetSection(sectionName).Bind(config);
+
+            // Explicitly reapply environment variable values (manually override if set)
+            var properties = configType.GetProperties();
+            foreach (var property in properties)
             {
-                throw new InvalidOperationException($"Configuration section '{sectionName}' is missing or invalid.");
+                var envVariableName = $"{sectionName}__{property.Name}";
+                var envValue = Environment.GetEnvironmentVariable(envVariableName);
+
+                if (!string.IsNullOrEmpty(envValue))
+                {
+                    var convertedValue = Convert.ChangeType(envValue, property.PropertyType);
+                    property.SetValue(config, convertedValue);
+                }
             }
 
+            // Validate and replace properties
             ValidateAndReplaceProperties(config, sectionName);
 
+            // Register the configuration as a singleton service
             services.AddSingleton(configType, config);
         }
     }

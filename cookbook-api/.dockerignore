@@ -1,0 +1,15 @@
+**/[Oo]bj/
+**/[Bb]in/
+**/[Ll]ogs/
+**/.vs/
+**/.vscode/
+**/*.user
+**/*.userosscache
+**/*.dbmdl
+**/*.jfm
+**/node_modules/
+**/.git/
+**/.gitignore
+**/.gitattributes
+**/.env
+**/*.log

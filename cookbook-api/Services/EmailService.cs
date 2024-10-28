@@ -235,9 +235,11 @@ public class TemplateService : ITemplateService
 {
     private readonly string _templateDirectory;
     private readonly Dictionary<string, HandlebarsTemplate<object, object>> _compiledTemplates;
+    private readonly FileService _fileService;
 
-    public TemplateService(EmailConfig config)
+    public TemplateService(EmailConfig config, FileService fileService)
     {
+        _fileService = fileService;
         _templateDirectory = config.TemplateDirectory;
         _compiledTemplates = new Dictionary<string, HandlebarsTemplate<object, object>>();
         CompileBaseTemplate();
@@ -246,7 +248,7 @@ public class TemplateService : ITemplateService
     private void CompileBaseTemplate()
     {
         var baseTemplatePath = Path.Combine(_templateDirectory, "base.html");
-        var baseTemplateContent = File.ReadAllText(baseTemplatePath);
+        var baseTemplateContent = _fileService.GetFile(baseTemplatePath);
         _compiledTemplates["base"] = Handlebars.Compile(baseTemplateContent);
     }
 

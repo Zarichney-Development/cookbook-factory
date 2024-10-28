@@ -7,6 +7,20 @@ using ILogger = Serilog.ILogger;
 namespace Cookbook.Factory.Controllers;
 
 [ApiController]
+public class PublicController : ControllerBase
+{
+    [HttpGet("api/health")]
+    public IActionResult HealthCheck()
+    {
+        return Ok(new
+        {
+            Success = true,
+            Time = DateTime.Now.ToLocalTime()
+        });
+    }
+}
+
+[ApiController]
 [Route("api")]
 public class ApiController(
     RecipeService recipeService,
@@ -17,6 +31,16 @@ public class ApiController(
 ) : ControllerBase
 {
     private readonly ILogger _log = Log.ForContext<ApiController>();
+
+    [HttpGet("health/secure")]
+    public IActionResult HealthCheck()
+    {
+        return Ok(new
+        {
+            Success = true,
+            Time = DateTime.Now.ToLocalTime()
+        });
+    }
 
     [HttpGet("order/{orderId}")]
     public async Task<IActionResult> GetOrder([FromRoute] string orderId)
@@ -66,18 +90,18 @@ public class ApiController(
         }
 
         var order = await orderService.ProcessOrderSubmission(submission);
-        
+
         // Queue the cookbook generation task
         taskQueue.QueueBackgroundWorkItemAsync(async token =>
         {
-            await orderService.GenerateCookbookAsync(order, true);
+            await orderService.GenerateCookbookAsync(order, false);
             await orderService.CompilePdf(order);
             await orderService.EmailCookbook(order.OrderId);
         });
 
         return Created($"/api/order/{order.OrderId}", order);
     }
-    
+
     [HttpGet("recipe")]
     public async Task<IActionResult> GetRecipes([FromQuery] string query)
     {
@@ -133,7 +157,7 @@ public class ApiController(
     }
 
     [HttpPost("order/{orderId}/pdf")]
-    public async Task<IActionResult> RebuildPdf([FromQuery] string orderId)
+    public async Task<IActionResult> RebuildPdf([FromRoute] string orderId, [FromQuery] bool email = false)
     {
         if (string.IsNullOrWhiteSpace(orderId))
         {
@@ -143,11 +167,19 @@ public class ApiController(
 
         var order = await orderService.GetOrder(orderId);
 
-        await orderService.CompilePdf(order);
+        await orderService.CompilePdf(order, email);
+        
+        var response = "PDF Rebuilt";
 
-        return Ok("PDF Rebuilt");
+        if (email)
+        {
+            await orderService.EmailCookbook(order.OrderId);
+            response += " and email sent";
+        }
+
+        return Ok(response);
     }
-    
+
     [HttpPost("email/validate")]
     public async Task<IActionResult> ValidateEmail([FromQuery] string email)
     {

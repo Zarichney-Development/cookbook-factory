@@ -14,8 +14,25 @@ Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Configure Kestrel
+builder.WebHost.ConfigureKestrel(serverOptions =>
+{
+    serverOptions.ConfigureEndpointDefaults(listenOptions =>
+    {
+        // Clear all defaults
+        listenOptions.KestrelServerOptions.ConfigureEndpointDefaults(_ => { });
+    });
+    
+    // Explicitly bind to port 80 on all interfaces
+    serverOptions.ListenAnyIP(80, options =>
+    {
+        options.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http1AndHttp2;
+    });
+});
+
 builder.Configuration.AddJsonFile("appsettings.json");
 builder.Configuration.AddUserSecrets<Program>();
+builder.Configuration.AddEnvironmentVariables();
 
 var logger = new LoggerConfiguration()
     .WriteTo.Console()
@@ -28,12 +45,11 @@ if (!string.IsNullOrEmpty(seqUrl))
 }
 
 Log.Logger = logger.CreateLogger();
+Log.Information("Starting up the Cookbook Factory application...");
 
 builder.Host.UseSerilog();
 
 builder.Services.AddSingleton(Log.Logger);
-
-Log.Information("Starting Cookbook Factory web application");
 
 builder.Services.AddHttpContextAccessor();
 
@@ -57,15 +73,40 @@ var graphClient = new GraphServiceClient(new ClientSecretCredential(
     }), new[] { "https://graph.microsoft.com/.default" });
 builder.Services.AddSingleton(graphClient);
 
-var apiKey = builder.Configuration["OpenAiConfig:ApiKey"]
+var apiKey = builder.Configuration["LlmConfig:ApiKey"]
              ?? throw new InvalidConfigurationException("Missing required configuration for Azure/OpenAI API key.");
-
 builder.Services.AddSingleton(new OpenAIClient(apiKey));
 
 builder.Services.AddPrompts(typeof(PromptBase).Assembly);
 builder.Services.AddSingleton<FileService>();
 builder.Services.AddSingleton<IEmailService, EmailService>();
-builder.Services.AddSingleton<ITemplateService, TemplateService>();
+// Add this near the start of your Program.cs, after the builder configuration
+builder.Services.AddSingleton<ITemplateService>(provider =>
+{
+    var fileService = provider.GetRequiredService<FileService>();
+    var templateLogger = provider.GetRequiredService<ILogger<TemplateService>>();
+    
+    // Log the template directory path
+    templateLogger.LogInformation("Template directory: {TemplateDirectory}", emailConfig.TemplateDirectory);
+    
+    // Verify template directory exists
+    if (!Directory.Exists(emailConfig.TemplateDirectory))
+    {
+        templateLogger.LogError("Template directory not found: {TemplateDirectory}", emailConfig.TemplateDirectory);
+        throw new DirectoryNotFoundException($"Template directory not found: {emailConfig.TemplateDirectory}");
+    }
+    
+    // Verify base template exists
+    var baseTemplatePath = Path.Combine(emailConfig.TemplateDirectory, "base.html");
+    if (!File.Exists(baseTemplatePath))
+    {
+        templateLogger.LogError("Base template not found: {BaseTemplatePath}", baseTemplatePath);
+        throw new FileNotFoundException($"Base template not found: {baseTemplatePath}");
+    }
+    
+    return new TemplateService(emailConfig, fileService);
+});
+// builder.Services.AddSingleton<ITemplateService, TemplateService>();
 builder.Services.AddSingleton<IBackgroundTaskQueue>(_ => new BackgroundTaskQueue(100));
 builder.Services.AddHostedService<BackgroundTaskService>();
 
@@ -79,11 +120,64 @@ builder.Services.AddSingleton<IRecipeRepository, RecipeRepository>();
 var recipeRepository = builder.Services.GetService<IRecipeRepository>();
 await recipeRepository.InitializeAsync();
 
+builder.Services.Configure<ApiKeyConfig>(config =>
+{
+    config.AllowedKeys = builder.Configuration["ApiKeyConfig:AllowedKeys"] ?? string.Empty;
+});
+
+builder.Services.AddSingleton(_ =>
+{
+    var config = new ApiKeyConfig
+    {
+        AllowedKeys = builder.Configuration["ApiKeyConfig:AllowedKeys"] ?? string.Empty
+    };
+    
+    if (!config.ValidApiKeys.Any())
+    {
+        throw new InvalidOperationException("No valid API keys configured");
+    }
+    
+    return config;
+});
+
 builder.Services.AddEndpointsApiExplorer();
 
 builder.Services.AddSwaggerGen(c =>
 {
-    c.SwaggerDoc("v1", new OpenApiInfo { Title = "Cookbook Factory API", Version = "v1" });
+    c.SwaggerDoc("v1", new OpenApiInfo 
+    { 
+        Title = "Cookbook Factory API", 
+        Version = "v1",
+        Description = "API for the Cookbook Factory application. Authenticate using the 'Authorize' button and provide your API key."
+    });
+
+    // Add security definition for API key
+    c.AddSecurityDefinition("ApiKey", new OpenApiSecurityScheme
+    {
+        Type = SecuritySchemeType.ApiKey,
+        In = ParameterLocation.Header,
+        Name = "X-Api-Key",
+        Description = "API key authentication. Enter your API key here.",
+    });
+
+    // Add security requirement for all operations
+    c.AddSecurityRequirement(new OpenApiSecurityRequirement
+    {
+        {
+            new OpenApiSecurityScheme
+            {
+                Reference = new OpenApiReference
+                {
+                    Type = ReferenceType.SecurityScheme,
+                    Id = "ApiKey"
+                }
+            },
+            Array.Empty<string>()
+        }
+    });
+
+    // Optional: Add custom filter to exclude health check endpoint from requiring authentication
+    c.OperationFilter<SwaggerSecuritySchemeFilter>();
 });
 
 builder.Services.AddCors(options =>
@@ -91,7 +185,7 @@ builder.Services.AddCors(options =>
     options.AddPolicy("AllowSpecificOrigin",
         policyBuilder =>
         {
-            policyBuilder.WithOrigins("http://localhost:4200")
+            policyBuilder.WithOrigins("http://localhost:8080")
                 .AllowAnyHeader()
                 .AllowAnyMethod();
         });
@@ -121,6 +215,8 @@ app.UseSwaggerUI(c => c.SwaggerEndpoint("/swagger/v1/swagger.json", "Cookbook Fa
 
 app.UseHttpsRedirection();
 app.UseAuthorization();
+
+app.UseApiKeyAuth();
 
 app.MapControllers();
 

@@ -91,14 +91,19 @@ public class SynthesizedRecipe
         sb.Append(this.ToMarkdownHeader(nameof(Title)));
 
         sb.AppendLine(this.ToMarkdownProperty(nameof(Servings)));
+        sb.Append("&emsp;");
+        sb.Append("&emsp;");
+        sb.Append(this.ToMarkdownProperty(nameof(CookTime)));
+        sb.AppendLine();
+        sb.Append(this.ToMarkdownProperty(nameof(PrepTime)));
+        sb.Append("&emsp;");
+        sb.Append("&emsp;");
+        sb.Append(this.ToMarkdownProperty(nameof(TotalTime)));
+        sb.AppendLine();
+        sb.AppendLine();
 
         sb.AppendLine(this.ToMarkdownSection(nameof(Description), false));
         sb.AppendLine(Utils.ToMarkdownHorizontalRule());
-
-        sb.Append(this.ToMarkdownProperty(nameof(PrepTime)));
-        sb.Append(this.ToMarkdownProperty(nameof(CookTime)));
-        sb.Append(this.ToMarkdownProperty(nameof(TotalTime)));
-        sb.AppendLine();
 
         sb.Append(this.ToMarkdownList(nameof(Ingredients)));
         sb.Append(this.ToMarkdownNumberedList(nameof(Directions)));
