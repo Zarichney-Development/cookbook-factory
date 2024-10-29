@@ -39,9 +39,17 @@ var logger = new LoggerConfiguration()
     .Enrich.FromLogContext();
 
 var seqUrl = builder.Configuration["LoggingConfig:SeqUrl"];
-if (!string.IsNullOrEmpty(seqUrl))
+if (!string.IsNullOrEmpty(seqUrl) && Uri.IsWellFormedUriString(seqUrl, UriKind.Absolute))
 {
-    logger = logger.WriteTo.Seq(seqUrl);
+    logger = logger.WriteTo.Seq(seqUrl); 
+}
+else
+{
+    // Add file logging for containerized environment
+    var logPath = Path.Combine("logs", "cookbook-factory.log");
+    logger = logger.WriteTo.File(logPath, 
+        rollingInterval: RollingInterval.Day,
+        retainedFileCountLimit: 7);
 }
 
 Log.Logger = logger.CreateLogger();
@@ -201,6 +209,22 @@ builder.Services.AddRequestResponseLogger(options =>
 });
 
 var app = builder.Build();
+
+app.Use(async (context, next) =>
+{
+    Log.Information(
+        "Request {Method} {Url} starting",
+        context.Request.Method,
+        context.Request.Path);
+    
+    await next();
+    
+    Log.Information(
+        "Request {Method} {Url} completed with status {StatusCode}",
+        context.Request.Method,
+        context.Request.Path,
+        context.Response.StatusCode);
+});
 
 app.UseMiddleware<ErrorHandlingMiddleware>();
 

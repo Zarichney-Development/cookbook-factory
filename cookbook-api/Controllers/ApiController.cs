@@ -7,9 +7,10 @@ using ILogger = Serilog.ILogger;
 namespace Cookbook.Factory.Controllers;
 
 [ApiController]
+[Route("api/factory")]
 public class PublicController : ControllerBase
 {
-    [HttpGet("api/health")]
+    [HttpGet("health")]
     public IActionResult HealthCheck()
     {
         return Ok(new
@@ -21,7 +22,7 @@ public class PublicController : ControllerBase
 }
 
 [ApiController]
-[Route("api")]
+[Route("api/factory")]
 public class ApiController(
     RecipeService recipeService,
     OrderService orderService,
