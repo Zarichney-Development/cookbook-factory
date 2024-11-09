@@ -30,31 +30,17 @@ builder.WebHost.ConfigureKestrel(serverOptions =>
     });
 });
 
-builder.Configuration.AddJsonFile("appsettings.json");
-builder.Configuration.AddUserSecrets<Program>();
-builder.Configuration.AddEnvironmentVariables();
+builder.Configuration
+    .AddJsonFile("appsettings.json")
+    .AddUserSecrets<Program>()
+    .AddEnvironmentVariables()
+    .AddSystemsManager("/cookbook-api", new Amazon.Extensions.NETCore.Setup.AWSOptions
+    {
+        Region = Amazon.RegionEndpoint.USEast2
+    })
+;
 
-// Production configuration:
-builder.Configuration.AddSystemsManager("/cookbook-api", new Amazon.Extensions.NETCore.Setup.AWSOptions
-{
-    Region = Amazon.RegionEndpoint.USEast2
-});
-// Remaps config values so that the EC2 pathing is prepended with the APP_DATA_PATH env var, moving the output outside the build directory
-var dataPath = Environment.GetEnvironmentVariable("APP_DATA_PATH") ?? "Data";
-builder.Configuration.AsEnumerable()
-        .Where(kvp => kvp.Value?.StartsWith("Data/") == true)
-        .ToList()
-        .ForEach(kvp =>
-            builder.Configuration.Sources.Add(new MemoryConfigurationSource
-            {
-                InitialData = [
-                    new KeyValuePair<string, string>(
-                        kvp.Key,
-                        Path.Combine(dataPath, kvp.Value!["Data/".Length..])
-                    )!
-                ]
-            })
-        );
+builder.Services.AddConfigurations(builder.Configuration);
 
 var logger = new LoggerConfiguration()
     .WriteTo.Console()
@@ -88,8 +74,6 @@ builder.Services.AddControllers()
 
 builder.Services.AddAutoMapper(typeof(Program));
 builder.Services.AddMemoryCache();
-
-builder.Services.AddConfigurations(builder.Configuration);
 
 var emailConfig = builder.Services.GetService<EmailConfig>();
 

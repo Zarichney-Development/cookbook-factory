@@ -220,9 +220,28 @@ public interface IConfig;
 public static class ConfigurationExtensions
 {
     private const string PlaceholderValue = "recommended to set in app secrets";
+    private const string DataFolderName = "Data";
 
     public static void AddConfigurations(this IServiceCollection services, IConfiguration configuration)
     {
+        var dataPath = Environment.GetEnvironmentVariable("APP_DATA_PATH") ?? DataFolderName;
+        
+        // Create a new configuration source for transformed paths
+        var transformedPaths = configuration.AsEnumerable()
+            .Where(kvp => kvp.Value?.StartsWith($"{DataFolderName}/") == true)
+            .Select(kvp => new KeyValuePair<string, string>(
+                kvp.Key,
+                Path.Combine(dataPath, kvp.Value![$"{DataFolderName}/".Length..])
+            ));
+
+        // Add transformed paths as a new configuration source
+        var keyValuePairs = transformedPaths as KeyValuePair<string, string>[] ?? transformedPaths.ToArray();
+        if (keyValuePairs.Any())
+        {
+            ((IConfigurationBuilder)configuration)
+                .AddInMemoryCollection(keyValuePairs!);
+        }
+
         var configTypes = Assembly.GetExecutingAssembly()
             .GetTypes()
             .Where(t => typeof(IConfig).IsAssignableFrom(t) && t is { IsInterface: false, IsAbstract: false });
