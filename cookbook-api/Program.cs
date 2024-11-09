@@ -9,6 +9,7 @@ using Microsoft.IdentityModel.Protocols.Configuration;
 using OpenAI;
 using Microsoft.OpenApi.Models;
 using Serilog;
+using Microsoft.Extensions.Configuration.Memory;
 
 Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
 
@@ -22,7 +23,7 @@ builder.WebHost.ConfigureKestrel(serverOptions =>
         // Clear all defaults
         listenOptions.KestrelServerOptions.ConfigureEndpointDefaults(_ => { });
     });
-    
+
     serverOptions.ListenAnyIP(5000, options =>
     {
         options.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http1AndHttp2;
@@ -32,10 +33,28 @@ builder.WebHost.ConfigureKestrel(serverOptions =>
 builder.Configuration.AddJsonFile("appsettings.json");
 builder.Configuration.AddUserSecrets<Program>();
 builder.Configuration.AddEnvironmentVariables();
+
+// Production configuration:
 builder.Configuration.AddSystemsManager("/cookbook-api", new Amazon.Extensions.NETCore.Setup.AWSOptions
 {
     Region = Amazon.RegionEndpoint.USEast2
 });
+// Remaps config values so that the EC2 pathing is prepended with the APP_DATA_PATH env var, moving the output outside the build directory
+var dataPath = Environment.GetEnvironmentVariable("APP_DATA_PATH") ?? "Data";
+builder.Configuration.AsEnumerable()
+        .Where(kvp => kvp.Value?.StartsWith("Data/") == true)
+        .ToList()
+        .ForEach(kvp =>
+            builder.Configuration.Sources.Add(new MemoryConfigurationSource
+            {
+                InitialData = [
+                    new KeyValuePair<string, string>(
+                        kvp.Key,
+                        Path.Combine(dataPath, kvp.Value!["Data/".Length..])
+                    )!
+                ]
+            })
+        );
 
 var logger = new LoggerConfiguration()
     .WriteTo.Console()
@@ -44,13 +63,13 @@ var logger = new LoggerConfiguration()
 var seqUrl = builder.Configuration["LoggingConfig:SeqUrl"];
 if (!string.IsNullOrEmpty(seqUrl) && Uri.IsWellFormedUriString(seqUrl, UriKind.Absolute))
 {
-    logger = logger.WriteTo.Seq(seqUrl); 
+    logger = logger.WriteTo.Seq(seqUrl);
 }
 else
 {
     // Add file logging for containerized environment
     var logPath = Path.Combine("logs", "cookbook-factory.log");
-    logger = logger.WriteTo.File(logPath, 
+    logger = logger.WriteTo.File(logPath,
         rollingInterval: RollingInterval.Day,
         retainedFileCountLimit: 7);
 }
@@ -96,17 +115,17 @@ builder.Services.AddSingleton<ITemplateService>(provider =>
 {
     var fileService = provider.GetRequiredService<FileService>();
     var templateLogger = provider.GetRequiredService<ILogger<TemplateService>>();
-    
+
     // Log the template directory path
     templateLogger.LogInformation("Template directory: {TemplateDirectory}", emailConfig.TemplateDirectory);
-    
+
     // Verify template directory exists
     if (!Directory.Exists(emailConfig.TemplateDirectory))
     {
         templateLogger.LogError("Template directory not found: {TemplateDirectory}", emailConfig.TemplateDirectory);
         throw new DirectoryNotFoundException($"Template directory not found: {emailConfig.TemplateDirectory}");
     }
-    
+
     // Verify base template exists
     var baseTemplatePath = Path.Combine(emailConfig.TemplateDirectory, "base.html");
     if (!File.Exists(baseTemplatePath))
@@ -114,7 +133,7 @@ builder.Services.AddSingleton<ITemplateService>(provider =>
         templateLogger.LogError("Base template not found: {BaseTemplatePath}", baseTemplatePath);
         throw new FileNotFoundException($"Base template not found: {baseTemplatePath}");
     }
-    
+
     return new TemplateService(emailConfig, fileService);
 });
 // builder.Services.AddSingleton<ITemplateService, TemplateService>();
@@ -142,12 +161,12 @@ builder.Services.AddSingleton(_ =>
     {
         AllowedKeys = builder.Configuration["ApiKeyConfig:AllowedKeys"] ?? string.Empty
     };
-    
+
     if (!config.ValidApiKeys.Any())
     {
         throw new InvalidOperationException("No valid API keys configured");
     }
-    
+
     return config;
 });
 
@@ -155,9 +174,9 @@ builder.Services.AddEndpointsApiExplorer();
 
 builder.Services.AddSwaggerGen(c =>
 {
-    c.SwaggerDoc("v1", new OpenApiInfo 
-    { 
-        Title = "Cookbook Factory API", 
+    c.SwaggerDoc("v1", new OpenApiInfo
+    {
+        Title = "Cookbook Factory API",
         Version = "v1",
         Description = "API for the Cookbook Factory application. Authenticate using the 'Authorize' button and provide your API key."
     });
@@ -219,9 +238,9 @@ app.Use(async (context, next) =>
         "Request {Method} {Url} starting",
         context.Request.Method,
         context.Request.Path);
-    
+
     await next();
-    
+
     Log.Information(
         "Request {Method} {Url} completed with status {StatusCode}",
         context.Request.Method,
