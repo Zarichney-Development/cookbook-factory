@@ -33,6 +33,10 @@ builder.WebHost.ConfigureKestrel(serverOptions =>
 builder.Configuration.AddJsonFile("appsettings.json");
 builder.Configuration.AddUserSecrets<Program>();
 builder.Configuration.AddEnvironmentVariables();
+builder.Configuration.AddSystemsManager("/cookbook-api", new Amazon.Extensions.NETCore.Setup.AWSOptions
+{
+    Region = Amazon.RegionEndpoint.USEast2
+});
 
 var logger = new LoggerConfiguration()
     .WriteTo.Console()
