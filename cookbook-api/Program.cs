@@ -23,8 +23,7 @@ builder.WebHost.ConfigureKestrel(serverOptions =>
         listenOptions.KestrelServerOptions.ConfigureEndpointDefaults(_ => { });
     });
     
-    // Explicitly bind to port 80 on all interfaces
-    serverOptions.ListenAnyIP(80, options =>
+    serverOptions.ListenAnyIP(5000, options =>
     {
         options.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http1AndHttp2;
     });
