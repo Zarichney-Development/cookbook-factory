@@ -7,10 +7,6 @@ on:
 
 env:
   AWS_REGION: us-east-2
-  ECR_REPOSITORY: cookbook-factory
-  ECS_CLUSTER: cookbook-factory-cluster
-  ECS_SERVICE: cookbook-factory-service
-  ECS_TASK_DEFINITION: cookbook-factory-task
 
 permissions:
   id-token: write
@@ -31,44 +27,28 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
           mask-aws-account-id: true
 
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v3
+        with:
+          dotnet-version: '8.0.x'
 
-      - name: Build, tag, and push image to Amazon ECR
-        id: build-image
+      - name: Publish
+        run: dotnet publish -c Release -o ./publish
+
+      - name: Deploy to EC2
         env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }}
-        working-directory: ./cookbook-api
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USERNAME: ec2-user
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
         run: |
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> "$GITHUB_OUTPUT"
-
-      - name: Download task definition
-        run: |
-          aws ecs describe-task-definition --task-definition $ECS_TASK_DEFINITION \
-          --query taskDefinition > task-definition.json
-
-      - name: Fill in the new image ID in the Amazon ECS task definition
-        id: task-def
-        uses: aws-actions/amazon-ecs-render-task-definition@v1
-        with:
-          task-definition: task-definition.json
-          container-name: cookbook-factory
-          image: ${{ steps.build-image.outputs.image }}
-
-      - name: Deploy Amazon ECS task definition
-        uses: aws-actions/amazon-ecs-deploy-task-definition@v1
-        with:
-          task-definition: ${{ steps.task-def.outputs.task-definition }}
-          service: ${{ env.ECS_SERVICE }}
-          cluster: ${{ env.ECS_CLUSTER }}
-          wait-for-service-stability: true
+          echo "$EC2_SSH_KEY" > private_key && chmod 600 private_key
+          scp -r -o StrictHostKeyChecking=no -i private_key ./publish/* ${EC2_USERNAME}@${EC2_HOST}:/opt/cookbook-api/
+          ssh -o StrictHostKeyChecking=no -i private_key ${EC2_USERNAME}@${EC2_HOST} '
+            sudo systemctl restart cookbook-api || sudo systemctl start cookbook-api
+          '
 
       - name: Invalidate CloudFront cache
         run: |
           aws cloudfront create-invalidation \
           --distribution-id ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }} \
-          --paths "/api/factory/*"
+          --paths "/api/cookbook/*"
