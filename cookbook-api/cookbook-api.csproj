@@ -9,6 +9,7 @@
         <RootNamespace>Cookbook.Factory</RootNamespace>
         <UserSecretsId>a35593bb-4d12-4d33-9746-36ebf20b99e7</UserSecretsId>
         <NoWarn>OPENAI001</NoWarn>
+        <EnableDefaultContentItems>false</EnableDefaultContentItems>
     </PropertyGroup>
 
     <ItemGroup>
@@ -39,6 +40,7 @@
     </ItemGroup>
 
     <ItemGroup>
+        <Content Include="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
         <Content Include="Config/site_selectors.json" CopyToOutputDirectory="PreserveNewest" />
         <Content Include="EmailTemplates/**" CopyToOutputDirectory="PreserveNewest" />
         <None Update="AwsMaintenance.md" CopyToOutputDirectory="PreserveNewest" />
