@@ -120,6 +120,8 @@ public class FileService : IDisposable
 
             var fileNamePath = Path.Combine(operation.Directory,
                 $"{SanitizeFileName(operation.Filename)}.{operation.Extension}");
+            
+            _log.Verbose("Writing file: {Filename}", fileNamePath);
 
             if (operation.Data is byte[] pdfData)
             {
@@ -174,6 +176,8 @@ public class FileService : IDisposable
     private async Task<object?> LoadExistingData(string directory, string filename, string extension = "json")
     {
         var filePath = Path.Combine(directory, $"{SanitizeFileName(filename)}.{extension}");
+        
+        _log.Verbose("Loading existing data from '{FilePath}'", filePath);
 
         if (!File.Exists(filePath)) return null;
 
@@ -220,6 +224,7 @@ public class FileService : IDisposable
 
     public string GetFile(string filePath)
     {
+        _log.Verbose("Read All Text from '{FilePath}'", filePath);
         return File.ReadAllText(filePath);
     }
 

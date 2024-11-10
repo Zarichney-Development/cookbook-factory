@@ -9,7 +9,6 @@ using Microsoft.IdentityModel.Protocols.Configuration;
 using OpenAI;
 using Microsoft.OpenApi.Models;
 using Serilog;
-using Microsoft.Extensions.Configuration.Memory;
 
 Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
 
@@ -40,8 +39,6 @@ builder.Configuration
     })
 ;
 
-builder.Services.AddConfigurations(builder.Configuration);
-
 var logger = new LoggerConfiguration()
     .WriteTo.Console()
     .Enrich.FromLogContext();
@@ -62,6 +59,8 @@ else
 
 Log.Logger = logger.CreateLogger();
 Log.Information("Starting up the Cookbook Factory application...");
+
+builder.Services.RegisterConfigurationServices(builder.Configuration);
 
 builder.Host.UseSerilog();
 

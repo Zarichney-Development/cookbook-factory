@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.IdentityModel.Protocols.Configuration;
+using Serilog;
 
 namespace Cookbook.Factory.Services;
 
@@ -222,24 +223,44 @@ public static class ConfigurationExtensions
     private const string PlaceholderValue = "recommended to set in app secrets";
     private const string DataFolderName = "Data";
 
-    public static void AddConfigurations(this IServiceCollection services, IConfiguration configuration)
+    public static void RegisterConfigurationServices(this IServiceCollection services, IConfiguration configuration)
     {
-        var dataPath = Environment.GetEnvironmentVariable("APP_DATA_PATH") ?? DataFolderName;
-        
-        // Create a new configuration source for transformed paths
-        var transformedPaths = configuration.AsEnumerable()
-            .Where(kvp => kvp.Value?.StartsWith($"{DataFolderName}/") == true)
+        var dataPath = Environment.GetEnvironmentVariable("APP_DATA_PATH") ?? "Data";
+        Log.Information("APP_DATA_PATH environment variable: {DataPath}", dataPath);
+
+        var pathConfigs = configuration.AsEnumerable()
+            .Where(kvp => kvp.Value?.StartsWith("Data/") == true)
+            .ToList();
+
+        Log.Information("Found {Count} Data/ paths in configuration:", pathConfigs.Count);
+        foreach (var kvp in pathConfigs)
+        {
+            var newPath = Path.Combine(dataPath, kvp.Value!["Data/".Length..]);
+            Log.Information("Transforming path: {OldPath} -> {NewPath}", kvp.Value, newPath);
+        }
+
+        var transformedPaths = pathConfigs
             .Select(kvp => new KeyValuePair<string, string>(
                 kvp.Key,
-                Path.Combine(dataPath, kvp.Value![$"{DataFolderName}/".Length..])
+                Path.Combine(dataPath, kvp.Value!["Data/".Length..])
             ));
 
-        // Add transformed paths as a new configuration source
-        var keyValuePairs = transformedPaths as KeyValuePair<string, string>[] ?? transformedPaths.ToArray();
-        if (keyValuePairs.Any())
+        if (transformedPaths.Any())
         {
             ((IConfigurationBuilder)configuration)
-                .AddInMemoryCollection(keyValuePairs!);
+                .AddInMemoryCollection(transformedPaths);
+        
+            // Verify final configuration
+            Log.Information("Final configuration paths:");
+            foreach (var kvp in pathConfigs)
+            {
+                var finalValue = configuration[kvp.Key];
+                Log.Information("{Key}: {Value}", kvp.Key, finalValue);
+            }
+        }
+        else
+        {
+            Log.Warning("No paths were transformed!");
         }
 
         var configTypes = Assembly.GetExecutingAssembly()
@@ -271,7 +292,6 @@ public static class ConfigurationExtensions
                 }
             }
 
-            // Validate and replace properties
             ValidateAndReplaceProperties(config, sectionName);
 
             // Register the configuration as a singleton service
