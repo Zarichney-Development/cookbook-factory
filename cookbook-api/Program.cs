@@ -197,7 +197,9 @@ builder.Services.AddCors(options =>
     options.AddPolicy("AllowSpecificOrigin",
         policyBuilder =>
         {
-            policyBuilder.WithOrigins("http://localhost:5000")
+            policyBuilder
+                .WithOrigins("http://localhost:5000")
+                .WithOrigins("https://zarichney.com")
                 .AllowAnyHeader()
                 .AllowAnyMethod();
         });

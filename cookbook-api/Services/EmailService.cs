@@ -44,6 +44,13 @@ public class EmailService(
         var message = new Message
         {
             Subject = subject,
+            From = new Recipient
+            {
+                EmailAddress = new EmailAddress
+                {
+                    Address = config.FromEmail
+                }
+            },
             Body = new ItemBody
             {
                 ContentType = BodyType.Html,
@@ -60,7 +67,7 @@ public class EmailService(
                 }
             }
         };
-        
+
         message.Attachments = new List<Attachment>
         {
             new FileAttachment
@@ -79,7 +86,7 @@ public class EmailService(
 
         try
         {
-            await graphClient.Users[config.FromEmail].SendMail.PostAsync(requestBody);
+            await graphClient.Users[config.FromEmail].SendMail.PostAsync(requestBody); // line 82
         }
         catch (Exception e)
         {
