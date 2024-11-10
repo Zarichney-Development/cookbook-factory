@@ -86,11 +86,35 @@ public class EmailService(
 
         try
         {
-            await graphClient.Users[config.FromEmail].SendMail.PostAsync(requestBody); // line 82
+            _log.Information("Attempting to send email with configuration: {@EmailDetails}", new 
+            {
+                FromEmail = config.FromEmail,
+                ToEmail = recipient,
+                Subject = subject,
+                HasContent = !string.IsNullOrEmpty(message.Body.Content),
+                ContentLength = message.Body.Content?.Length,
+                HasAttachment = pdf != null,
+                AttachmentSize = pdf?.Length,
+                AzureAppId = config.AzureAppId,
+                HasTemplate = templateService != null
+            });
+
+            var emailAccount = graphClient.Users[config.FromEmail];
+            
+            await emailAccount.SendMail.PostAsync(requestBody);
         }
         catch (Exception e)
         {
-            _log.Error(e, "Error sending email");
+            _log.Error(e, "Error sending email. Request details: {@RequestDetails}", new 
+            {
+                FromEmail = config.FromEmail,
+                ToEmail = recipient,
+                Subject = subject,
+                MessageId = message.Id,
+                ErrorType = e.GetType().Name,
+                ErrorMessage = e.Message,
+                InnerError = e.InnerException?.Message
+            });
             throw;
         }
     }

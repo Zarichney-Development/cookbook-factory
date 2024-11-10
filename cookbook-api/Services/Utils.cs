@@ -226,17 +226,17 @@ public static class ConfigurationExtensions
     public static void RegisterConfigurationServices(this IServiceCollection services, IConfiguration configuration)
     {
         var dataPath = Environment.GetEnvironmentVariable("APP_DATA_PATH") ?? "Data";
-        Log.Information("APP_DATA_PATH environment variable: {DataPath}", dataPath);
+        Log.Verbose("APP_DATA_PATH environment variable: {DataPath}", dataPath);
 
         var pathConfigs = configuration.AsEnumerable()
             .Where(kvp => kvp.Value?.StartsWith("Data/") == true)
             .ToList();
 
-        Log.Information("Found {Count} Data/ paths in configuration:", pathConfigs.Count);
+        Log.Verbose("Found {Count} Data/ paths in configuration:", pathConfigs.Count);
         foreach (var kvp in pathConfigs)
         {
             var newPath = Path.Combine(dataPath, kvp.Value!["Data/".Length..]);
-            Log.Information("Transforming path: {OldPath} -> {NewPath}", kvp.Value, newPath);
+            Log.Verbose("Transforming path: {OldPath} -> {NewPath}", kvp.Value, newPath);
         }
 
         var transformedPaths = pathConfigs
@@ -251,7 +251,7 @@ public static class ConfigurationExtensions
                 .AddInMemoryCollection(transformedPaths);
         
             // Verify final configuration
-            Log.Information("Final configuration paths:");
+            Log.Verbose("Final configuration paths:");
             foreach (var kvp in pathConfigs)
             {
                 var finalValue = configuration[kvp.Key];
@@ -260,7 +260,7 @@ public static class ConfigurationExtensions
         }
         else
         {
-            Log.Warning("No paths were transformed!");
+            Log.Verbose("No paths were transformed!");
         }
 
         var configTypes = Assembly.GetExecutingAssembly()

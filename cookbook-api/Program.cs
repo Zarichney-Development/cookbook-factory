@@ -91,7 +91,6 @@ builder.Services.AddSingleton(new OpenAIClient(apiKey));
 builder.Services.AddPrompts(typeof(PromptBase).Assembly);
 builder.Services.AddSingleton<FileService>();
 builder.Services.AddSingleton<IEmailService, EmailService>();
-// Add this near the start of your Program.cs, after the builder configuration
 builder.Services.AddSingleton<ITemplateService>(provider =>
 {
     var fileService = provider.GetRequiredService<FileService>();
