@@ -22,7 +22,7 @@ public class ApiKeyAuthMiddleware(RequestDelegate next,
 
         // Check if the path should bypass authentication
         if (BypassPaths.Any(bypassPath => path.Equals(bypassPath, StringComparison.OrdinalIgnoreCase) ||
-                                          path.Contains("swagger", StringComparison.OrdinalIgnoreCase)))
+                                          path.StartsWith("/api/factory/swagger", StringComparison.OrdinalIgnoreCase)))
         {
             await next(context);
             return;

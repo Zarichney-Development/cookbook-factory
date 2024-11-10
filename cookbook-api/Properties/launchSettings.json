@@ -13,8 +13,10 @@
       "commandName": "Project",
       "dotnetRunMessages": true,
       "launchBrowser": true,
-      "launchUrl": "swagger",
-      "applicationUrl": "http://localhost:80"
+      "launchUrl": "api/factory/swagger",
+      "applicationUrl": "http://localhost:5000",
+        "environmentVariables": {
+        }
     }
   }
 }

@@ -23,10 +23,8 @@ builder.WebHost.ConfigureKestrel(serverOptions =>
         listenOptions.KestrelServerOptions.ConfigureEndpointDefaults(_ => { });
     });
 
-    serverOptions.ListenAnyIP(5000, options =>
-    {
-        options.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http1AndHttp2;
-    });
+    serverOptions.ListenAnyIP(5000,
+        options => { options.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http1AndHttp2; });
 });
 
 builder.Configuration
@@ -37,7 +35,7 @@ builder.Configuration
     {
         Region = Amazon.RegionEndpoint.USEast2
     })
-;
+    ;
 
 var logger = new LoggerConfiguration()
     .WriteTo.Console()
@@ -157,11 +155,12 @@ builder.Services.AddEndpointsApiExplorer();
 
 builder.Services.AddSwaggerGen(c =>
 {
-    c.SwaggerDoc("v1", new OpenApiInfo
+    c.SwaggerDoc("swagger", new OpenApiInfo
     {
         Title = "Cookbook Factory API",
         Version = "v1",
-        Description = "API for the Cookbook Factory application. Authenticate using the 'Authorize' button and provide your API key."
+        Description =
+            "API for the Cookbook Factory application. Authenticate using the 'Authorize' button and provide your API key."
     });
 
     // Add security definition for API key
@@ -198,7 +197,7 @@ builder.Services.AddCors(options =>
     options.AddPolicy("AllowSpecificOrigin",
         policyBuilder =>
         {
-            policyBuilder.WithOrigins("http://localhost:8080")
+            policyBuilder.WithOrigins("http://localhost:5000")
                 .AllowAnyHeader()
                 .AllowAnyMethod();
         });
@@ -208,8 +207,8 @@ builder.Services.AddRequestResponseLogger(options =>
 {
     options.LogRequests = true;
     options.LogResponses = true;
-    options.SensitiveHeaders = new[] { "Authorization", "Cookie", "X-API-Key" };
-    options.RequestFilter = context => !context.Request.Path.StartsWithSegments("/swagger");
+    options.SensitiveHeaders = ["Authorization", "Cookie", "X-API-Key"];
+    options.RequestFilter = context => !context.Request.Path.StartsWithSegments("/api/factory/swagger");
     options.LogDirectory = Path.Combine(builder.Environment.ContentRootPath, "Logs");
 });
 
@@ -239,8 +238,18 @@ app.UseCors("AllowSpecificOrigin");
 
 app.UseDeveloperExceptionPage();
 
-app.UseSwagger();
-app.UseSwaggerUI(c => c.SwaggerEndpoint("/swagger/v1/swagger.json", "Cookbook Factory API v1"));
+app
+    .UseSwagger(c =>
+    {
+        Log.Information("Configuring Swagger JSON at: api/factory/swagger/swagger.json");
+        c.RouteTemplate = "api/factory/swagger/{documentName}.json";
+        c.SerializeAsV2 = false;
+    })
+    .UseSwaggerUI(c =>
+    {
+        c.SwaggerEndpoint("/api/factory/swagger/swagger.json", "Cookbook Factory API");
+        c.RoutePrefix = "api/factory/swagger";
+    });
 
 app.UseHttpsRedirection();
 app.UseAuthorization();

@@ -100,7 +100,7 @@ public class ApiController(
             await orderService.EmailCookbook(order.OrderId);
         });
 
-        return Created($"/api/order/{order.OrderId}", order);
+        return Created($"/api/factory/order/{order.OrderId}", order);
     }
 
     [HttpGet("recipe")]
