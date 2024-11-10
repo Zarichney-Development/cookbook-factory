@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using AngleSharp;
 using AngleSharp.Dom;
+using Cookbook.Factory.Config;
 using Cookbook.Factory.Models;
 using Cookbook.Factory.Prompts;
 using Serilog;
@@ -314,7 +315,7 @@ public class WebScraperService(WebscraperConfig config, ChooseRecipesPrompt choo
 
     private static async Task<Dictionary<string, Dictionary<string, string>>> LoadSiteSelectors()
     {
-        var json = await File.ReadAllTextAsync("site_selectors.json");
+        var json = await File.ReadAllTextAsync("Config/site_selectors.json");
         return JsonSerializer.Deserialize<Dictionary<string, Dictionary<string, string>>>(json)!;
     }
 }

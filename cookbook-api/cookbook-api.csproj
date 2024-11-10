@@ -23,7 +23,7 @@
         <PackageReference Include="Microsoft.Graph" Version="5.56.0" />
         <PackageReference Include="OpenAI" Version="2.0.0-beta.8" />
         <PackageReference Include="Polly" Version="8.4.1" />
-        <PackageReference Include="RestSharp" Version="111.4.1" />
+        <PackageReference Include="RestSharp" Version="112.1.0" />
         <PackageReference Include="Serilog.AspNetCore" Version="8.0.1" />
         <PackageReference Include="Serilog.Extensions.Hosting" Version="8.0.0" />
         <PackageReference Include="Serilog.Settings.Configuration" Version="8.0.2" />
@@ -39,15 +39,9 @@
     </ItemGroup>
 
     <ItemGroup>
-        <Content Include="site_selectors.json">
-            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-        </Content>
-        <Content Include="EmailTemplates/**">
-            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-        </Content>
-        <None Update="AwsMaintenance.md">
-            <CopyToOutputDirectory>Never</CopyToOutputDirectory>
-        </None>
+        <Content Include="Config/site_selectors.json" CopyToOutputDirectory="PreserveNewest" />
+        <Content Include="EmailTemplates/**" CopyToOutputDirectory="PreserveNewest" />
+        <None Update="AwsMaintenance.md" CopyToOutputDirectory="PreserveNewest" />
     </ItemGroup>
     
 </Project>

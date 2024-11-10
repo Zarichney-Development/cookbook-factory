@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Text;
 using Azure.Identity;
+using Cookbook.Factory.Config;
 using Cookbook.Factory.Services;
 using Cookbook.Factory.Middleware;
 using Cookbook.Factory.Prompts;
@@ -89,34 +90,9 @@ var apiKey = builder.Configuration["LlmConfig:ApiKey"]
 builder.Services.AddSingleton(new OpenAIClient(apiKey));
 
 builder.Services.AddPrompts(typeof(PromptBase).Assembly);
-builder.Services.AddSingleton<FileService>();
+builder.Services.AddSingleton<IFileService, FileService>();
 builder.Services.AddSingleton<IEmailService, EmailService>();
-builder.Services.AddSingleton<ITemplateService>(provider =>
-{
-    var fileService = provider.GetRequiredService<FileService>();
-    var templateLogger = provider.GetRequiredService<ILogger<TemplateService>>();
-
-    // Log the template directory path
-    templateLogger.LogInformation("Template directory: {TemplateDirectory}", emailConfig.TemplateDirectory);
-
-    // Verify template directory exists
-    if (!Directory.Exists(emailConfig.TemplateDirectory))
-    {
-        templateLogger.LogError("Template directory not found: {TemplateDirectory}", emailConfig.TemplateDirectory);
-        throw new DirectoryNotFoundException($"Template directory not found: {emailConfig.TemplateDirectory}");
-    }
-
-    // Verify base template exists
-    var baseTemplatePath = Path.Combine(emailConfig.TemplateDirectory, "base.html");
-    if (!File.Exists(baseTemplatePath))
-    {
-        templateLogger.LogError("Base template not found: {BaseTemplatePath}", baseTemplatePath);
-        throw new FileNotFoundException($"Base template not found: {baseTemplatePath}");
-    }
-
-    return new TemplateService(emailConfig, fileService);
-});
-// builder.Services.AddSingleton<ITemplateService, TemplateService>();
+builder.Services.AddSingleton<ITemplateService, TemplateService>();
 builder.Services.AddSingleton<IBackgroundTaskQueue>(_ => new BackgroundTaskQueue(100));
 builder.Services.AddHostedService<BackgroundTaskService>();
 
@@ -215,22 +191,6 @@ builder.Services.AddRequestResponseLogger(options =>
 
 var app = builder.Build();
 
-app.Use(async (context, next) =>
-{
-    Log.Information(
-        "Request {Method} {Url} starting",
-        context.Request.Method,
-        context.Request.Path);
-
-    await next();
-
-    Log.Information(
-        "Request {Method} {Url} completed with status {StatusCode}",
-        context.Request.Method,
-        context.Request.Path,
-        context.Response.StatusCode);
-});
-
 app.UseMiddleware<ErrorHandlingMiddleware>();
 
 app.UseMiddleware<RequestResponseLoggerMiddleware>();
@@ -270,22 +230,4 @@ catch (Exception ex)
 finally
 {
     Log.CloseAndFlush();
-}
-
-
-public static class ServiceCollectionExtensions
-{
-    public static IServiceCollection AddPrompts(this IServiceCollection services, params Assembly[] assemblies)
-    {
-        var promptTypes = assemblies
-            .SelectMany(a => a.GetTypes())
-            .Where(type => type is { IsClass: true, IsAbstract: false } && typeof(PromptBase).IsAssignableFrom(type));
-
-        foreach (var promptType in promptTypes)
-        {
-            services.AddSingleton(promptType);
-        }
-
-        return services;
-    }
 }

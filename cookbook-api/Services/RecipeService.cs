@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 using AutoMapper;
+using Cookbook.Factory.Config;
 using Cookbook.Factory.Models;
 using Cookbook.Factory.Prompts;
 using OpenAI.Assistants;

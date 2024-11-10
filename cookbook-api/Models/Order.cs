@@ -39,8 +39,8 @@ public class CookbookOrder : CookbookOrderSubmission
     private string GenerateOrderId()
         => Guid.NewGuid().ToString()[..8];
 
-    public string OrderId { get; set; }
-    public List<string> RecipeList { get; set; }
+    public string OrderId { get; set; } = null!;
+    public List<string> RecipeList { get; set; } = null!;
     public List<SynthesizedRecipe>? SynthesizedRecipes { get; set; }
 }
 

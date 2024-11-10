@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text;
+using Cookbook.Factory.Config;
 using Cookbook.Factory.Models;
 using Cookbook.Factory.Prompts;
 using Polly;
@@ -19,7 +20,7 @@ public class OrderConfig : IConfig
 public class OrderService(
     OrderConfig config,
     ILlmService llmService,
-    FileService fileService,
+    IFileService fileService,
     RecipeService recipeService,
     ProcessOrderPrompt processOrderPrompt,
     PdfCompiler pdfCompiler,

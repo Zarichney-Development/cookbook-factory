@@ -1,6 +1,6 @@
 using System.Collections.Immutable;
 
-namespace Cookbook.Factory.Services;
+namespace Cookbook.Factory.Config;
 
 public class ApiKeyConfig
 {

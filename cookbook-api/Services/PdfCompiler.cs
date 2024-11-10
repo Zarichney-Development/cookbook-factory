@@ -1,4 +1,5 @@
 using System.Text;
+using Cookbook.Factory.Config;
 using Cookbook.Factory.Models;
 using QuestPDF.Fluent;
 using QuestPDF.Helpers;

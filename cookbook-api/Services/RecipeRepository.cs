@@ -16,7 +16,7 @@ public interface IRecipeRepository
 
 public class RecipeRepository(
     RecipeConfig config,
-    FileService fileService,
+    IFileService fileService,
     ILlmService llmService,
     RecipeNamerPrompt recipeNamerPrompt)
     : IRecipeRepository

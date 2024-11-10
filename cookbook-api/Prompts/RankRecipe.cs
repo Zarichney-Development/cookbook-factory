@@ -49,7 +49,7 @@ public class RankRecipePrompt : PromptBase
 
 public class RelevancyResult
 {
-    public string Query { get; set; }
+    public required string Query { get; set; }
     public int Score { get; set; }
     public string? Reasoning { get; set; }
 }

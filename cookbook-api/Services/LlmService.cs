@@ -1,4 +1,5 @@
 using AutoMapper;
+using Cookbook.Factory.Config;
 using Cookbook.Factory.Prompts;
 using OpenAI;
 using OpenAI.Assistants;

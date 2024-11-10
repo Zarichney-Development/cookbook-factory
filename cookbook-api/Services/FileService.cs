@@ -9,7 +9,17 @@ using ILogger = Serilog.ILogger;
 
 namespace Cookbook.Factory.Services;
 
-public class FileService : IDisposable
+public interface IFileService : IDisposable
+{
+    Task WriteToFile(string directory, string filename, object data, string extension = "json");
+    void WriteToFileAsync(string directory, string filename, object data, string extension = "json");
+    Task<T> ReadFromFile<T>(string directory, string filename, string extension = "json");
+    string[] GetFiles(string directoryPath);
+    string GetFile(string filePath);
+    Task<byte[]> GetFileBytes(string filePath);
+}
+
+public class FileService : IFileService
 {
     private readonly ILogger _log = Log.ForContext<FileService>();
     private readonly ConcurrentQueue<WriteOperation> _writeQueue = new();
@@ -68,7 +78,7 @@ public class FileService : IDisposable
 
         await PerformWriteOperationAsync(new WriteOperation(directory, filename, content, extension));
     }
-    
+
     public void WriteToFileAsync(string directory, string filename, object data, string extension = "json")
     {
         object content;
@@ -120,7 +130,7 @@ public class FileService : IDisposable
 
             var fileNamePath = Path.Combine(operation.Directory,
                 $"{SanitizeFileName(operation.Filename)}.{operation.Extension}");
-            
+
             _log.Verbose("Writing file: {Filename}", fileNamePath);
 
             if (operation.Data is byte[] pdfData)
@@ -176,7 +186,7 @@ public class FileService : IDisposable
     private async Task<object?> LoadExistingData(string directory, string filename, string extension = "json")
     {
         var filePath = Path.Combine(directory, $"{SanitizeFileName(filename)}.{extension}");
-        
+
         _log.Verbose("Loading existing data from '{FilePath}'", filePath);
 
         if (!File.Exists(filePath)) return null;
@@ -218,7 +228,7 @@ public class FileService : IDisposable
         {
             Directory.CreateDirectory(directoryPath);
         }
-        
+
         return Directory.GetFiles(directoryPath);
     }
 

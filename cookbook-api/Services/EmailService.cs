@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using System.Text.Json.Serialization;
+using Cookbook.Factory.Config;
 using HandlebarsDotNet;
 using Microsoft.Graph;
 using Microsoft.Graph.Models;
@@ -266,9 +267,9 @@ public class TemplateService : ITemplateService
 {
     private readonly string _templateDirectory;
     private readonly Dictionary<string, HandlebarsTemplate<object, object>> _compiledTemplates;
-    private readonly FileService _fileService;
+    private readonly IFileService _fileService;
 
-    public TemplateService(EmailConfig config, FileService fileService)
+    public TemplateService(EmailConfig config, IFileService fileService)
     {
         _fileService = fileService;
         _templateDirectory = config.TemplateDirectory;
