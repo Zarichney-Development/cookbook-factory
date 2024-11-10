@@ -12,7 +12,7 @@ namespace Cookbook.Factory.Services;
 public class OrderConfig : IConfig
 {
     public int MaxParallelTasks { get; init; } = 5;
-    public int MaxSampleRecipes { get; init; } = 3;
+    public int MaxSampleRecipes { get; init; } = 5;
     public string OutputDirectory { get; init; } = "Orders";
 }
 
@@ -36,7 +36,8 @@ public class OrderService(
             sleepDurationProvider: _ => TimeSpan.FromSeconds(1),
             onRetry: (exception, _, retryCount, context) =>
             {
-                Log.Warning(exception, "Attempt {retryCount}: Retrying due to {exception}. Retry Context: {@Context}",
+                Log.Warning(exception,
+                    "Email attempt {retryCount}: Retrying due to {exception}. Retry Context: {@Context}",
                     retryCount, exception.Message, context);
             }
         );
@@ -69,15 +70,24 @@ public class OrderService(
 
     public async Task<CookbookOrder> GenerateCookbookAsync(CookbookOrder order, bool isSample = false)
     {
+        order.SynthesizedRecipes = await ProcessRecipes(order, isSample);
+
+        UpdateOrderFile(order);
+
+        return order;
+    }
+
+    private async Task<List<SynthesizedRecipe>> ProcessRecipes(CookbookOrder order, bool isSample)
+    {
         var completedRecipes = new ConcurrentQueue<SynthesizedRecipe>();
 
-        var maxParralelTasks = config.MaxParallelTasks;
+        var maxParallelTasks = config.MaxParallelTasks;
         if (isSample)
         {
-            maxParralelTasks = Math.Min(maxParralelTasks, config.MaxSampleRecipes);
+            maxParallelTasks = Math.Min(maxParallelTasks, config.MaxSampleRecipes);
         }
 
-        var semaphore = new SemaphoreSlim(maxParralelTasks);
+        var semaphore = new SemaphoreSlim(maxParallelTasks);
         var processingTasks = new List<Task>();
 
         foreach (var recipeName in order.RecipeList)
@@ -116,11 +126,7 @@ public class OrderService(
             _log.Error(ex, "Unhandled exception in one of the processing tasks.");
         }
 
-        order.SynthesizedRecipes = completedRecipes.ToList();
-
-        UpdateOrderFile(order);
-
-        return order;
+        return completedRecipes.ToList();
 
         async Task ProcessRecipe(string recipeName)
         {
@@ -225,13 +231,13 @@ public class OrderService(
             );
             cookbookMarkdown.AppendLine(recipeMarkdown);
         }
-        
+
         fileService.WriteToFileAsync(
             Path.Combine(config.OutputDirectory, order.OrderId),
             "Cookbook",
             cookbookMarkdown.ToString(),
             "md"
-            );
+        );
 
         var pdf = await pdfCompiler.CompileCookbook(order);
 
@@ -281,7 +287,7 @@ public class OrderService(
                 "pdf"
             );
 
-            _log.Information("Emailing cookbook to {Email}", order.Email);
+            _log.Information("Sending cookbook email to {Email}", order.Email);
 
             await emailService.SendEmail(
                 order.Email,
@@ -290,6 +296,8 @@ public class OrderService(
                 templateData,
                 pdf
             );
+
+            _log.Information("Cookbook emailed to {Email}", order.Email);
         });
     }
 }

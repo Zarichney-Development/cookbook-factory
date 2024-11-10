@@ -52,7 +52,7 @@ public class LlmService(OpenAIClient client, IMapper mapper, LlmConfig config) :
             sleepDurationProvider: _ => TimeSpan.FromSeconds(1),
             onRetry: (exception, _, retryCount, context) =>
             {
-                Log.Warning(exception, "Attempt {retryCount}: Retrying due to {exception}. Retry Context: {@Context}",
+                Log.Warning(exception, "LLM attempt {retryCount}: Retrying due to {exception}. Retry Context: {@Context}",
                     retryCount, exception.Message, context);
             }
         );

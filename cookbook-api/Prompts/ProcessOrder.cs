@@ -33,6 +33,7 @@ public class ProcessOrderPrompt : PromptBase
            - If SpecificRecipes is provided, use these as a starting point, preserving the exact same recipe names in the output in order to respect the user's recipe title request(s).
            - If GeneralMealTypes is provided, use these to guide your recipe selection.
            - IMPORTANT: The ExpectedRecipeCount is the exact amount of recipe names you must generate using the function call.
+           - The max number of recipes currently allowed per cookbook is: 5.
 
         2. Consider the CookbookDetails:
            - Use the Theme, PrimaryPurpose, and DesiredCuisines to inform your recipe choices.

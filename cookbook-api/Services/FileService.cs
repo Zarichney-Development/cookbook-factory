@@ -23,7 +23,7 @@ public class FileService : IDisposable
             sleepDurationProvider: _ => TimeSpan.FromMilliseconds(200),
             onRetry: (exception, _, retryCount, context) =>
             {
-                Log.Warning(exception, "Attempt {retryCount}: Retrying due to {exception}. Retry Context: {@Context}",
+                Log.Warning(exception, "Read attempt {retryCount}: Retrying due to {exception}. Retry Context: {@Context}",
                     retryCount, exception.Message, context);
             }
         );

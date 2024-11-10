@@ -4,7 +4,8 @@ api.key
 bin
 obj
 .idea
-Data
 .env
+Data
 appsettings.json
 Scripts
+backup*

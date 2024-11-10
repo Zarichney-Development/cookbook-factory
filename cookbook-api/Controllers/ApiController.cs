@@ -8,21 +8,6 @@ namespace Cookbook.Factory.Controllers;
 
 [ApiController]
 [Route("api/factory")]
-public class PublicController : ControllerBase
-{
-    [HttpGet("health")]
-    public IActionResult HealthCheck()
-    {
-        return Ok(new
-        {
-            Success = true,
-            Time = DateTime.Now.ToLocalTime()
-        });
-    }
-}
-
-[ApiController]
-[Route("api/factory")]
 public class ApiController(
     RecipeService recipeService,
     OrderService orderService,
@@ -32,39 +17,6 @@ public class ApiController(
 ) : ControllerBase
 {
     private readonly ILogger _log = Log.ForContext<ApiController>();
-
-    [HttpGet("health/secure")]
-    public IActionResult HealthCheck()
-    {
-        return Ok(new
-        {
-            Success = true,
-            Time = DateTime.Now.ToLocalTime()
-        });
-    }
-
-    [HttpGet("order/{orderId}")]
-    public async Task<IActionResult> GetOrder([FromRoute] string orderId)
-    {
-        try
-        {
-            var order = await orderService.GetOrder(orderId);
-            return Ok(order);
-        }
-        catch (Exception ex)
-        {
-            _log.Error(ex, "Order not found using orderId: {orderId}", orderId);
-            return NotFound($"Order not found: {orderId}");
-        }
-    }
-
-    [HttpPost("order/{orderId}/email")]
-    public async Task<IActionResult> ResendCookbook([FromRoute] string orderId)
-    {
-        await orderService.EmailCookbook(orderId);
-
-        return Ok("Email sent");
-    }
 
     [HttpPost("cookbook")]
     public async Task<ActionResult<CookbookOrder>> CreateCookbook([FromBody] CookbookOrderSubmission submission)
@@ -93,9 +45,9 @@ public class ApiController(
         var order = await orderService.ProcessOrderSubmission(submission);
 
         // Queue the cookbook generation task
-        taskQueue.QueueBackgroundWorkItemAsync(async token =>
+        _ = taskQueue.QueueBackgroundWorkItemAsync(async _ =>
         {
-            await orderService.GenerateCookbookAsync(order, false);
+            await orderService.GenerateCookbookAsync(order, true);
             await orderService.CompilePdf(order);
             await orderService.EmailCookbook(order.OrderId);
         });
@@ -103,58 +55,35 @@ public class ApiController(
         return Created($"/api/factory/order/{order.OrderId}", order);
     }
 
-    [HttpGet("recipe")]
-    public async Task<IActionResult> GetRecipes([FromQuery] string query)
+    [HttpGet("order/{orderId}")]
+    public async Task<IActionResult> GetOrder([FromRoute] string orderId)
     {
-        if (string.IsNullOrWhiteSpace(query))
-        {
-            _log.Warning("Empty query received");
-            return BadRequest("Query parameter is required");
-        }
-
         try
         {
-            var recipes = await recipeService.GetRecipes(query);
-
-            if (recipes.Count == 0)
-            {
-                return NotFound($"No recipes found for '{query}'");
-            }
-
-            return Ok(recipes);
+            var order = await orderService.GetOrder(orderId);
+            return Ok(order);
         }
         catch (Exception ex)
         {
-            _log.Error(ex, $"Error occurred while processing query: {query}");
-            return StatusCode(500, ex);
+            _log.Error(ex, "Order not found using orderId: {orderId}", orderId);
+            return NotFound($"Order not found: {orderId}");
         }
     }
 
-    [HttpGet("recipe/scrape")]
-    public async Task<IActionResult> SearchRecipes([FromQuery] string query, [FromQuery] string? site = null)
+    [HttpPost("order/{orderId}")]
+    public async Task<IActionResult> ReprocessOrder([FromRoute] string orderId)
     {
-        if (string.IsNullOrWhiteSpace(query))
-        {
-            _log.Warning("Empty query received");
-            return BadRequest("Query parameter is required");
-        }
+        var order = await orderService.GetOrder(orderId);
 
-        try
+        // Queue the cookbook generation task
+        _ = taskQueue.QueueBackgroundWorkItemAsync(async _ =>
         {
-            var recipes = await webScraperService.ScrapeForRecipesAsync(query, site);
+            await orderService.GenerateCookbookAsync(order, true);
+            await orderService.CompilePdf(order);
+            await orderService.EmailCookbook(order.OrderId);
+        });
 
-            if (recipes.Count == 0)
-            {
-                return NotFound($"No recipes found for '{query}'");
-            }
-
-            return Ok(recipes);
-        }
-        catch (Exception ex)
-        {
-            _log.Error(ex, $"Error occurred while processing query: {query}");
-            return StatusCode(500, ex);
-        }
+        return Ok("Reprocessing order");
     }
 
     [HttpPost("order/{orderId}/pdf")]
@@ -169,7 +98,7 @@ public class ApiController(
         var order = await orderService.GetOrder(orderId);
 
         await orderService.CompilePdf(order, email);
-        
+
         var response = "PDF Rebuilt";
 
         if (email)
@@ -179,6 +108,44 @@ public class ApiController(
         }
 
         return Ok(response);
+    }
+
+    [HttpPost("order/{orderId}/email")]
+    public async Task<IActionResult> ResendCookbook([FromRoute] string orderId)
+    {
+        await orderService.EmailCookbook(orderId);
+
+        return Ok("Email sent");
+    }
+
+    [HttpGet("recipe")]
+    public async Task<IActionResult> GetRecipes([FromQuery] string query, [FromQuery] bool scrape = false,
+        [FromQuery] string? site = null)
+    {
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            _log.Warning("Empty query received");
+            return BadRequest("Query parameter is required");
+        }
+
+        try
+        {
+            var recipes = scrape
+                ? (IEnumerable<object>)await webScraperService.ScrapeForRecipesAsync(query, site)
+                : await recipeService.GetRecipes(query);
+
+            if (recipes.ToList().Count == 0)
+            {
+                return NotFound($"No recipes found for '{query}'");
+            }
+
+            return Ok(recipes);
+        }
+        catch (Exception ex)
+        {
+            _log.Error(ex, $"Error occurred while processing query: {query}");
+            return StatusCode(500, ex);
+        }
     }
 
     [HttpPost("email/validate")]
@@ -205,5 +172,30 @@ public class ApiController(
         }
 
         return Ok("Valid");
+    }
+
+    [HttpGet("health/secure")]
+    public IActionResult HealthCheck()
+    {
+        return Ok(new
+        {
+            Success = true,
+            Time = DateTime.Now.ToLocalTime()
+        });
+    }
+}
+
+[ApiController]
+[Route("api/factory")]
+public class PublicController : ControllerBase
+{
+    [HttpGet("health")]
+    public IActionResult HealthCheck()
+    {
+        return Ok(new
+        {
+            Success = true,
+            Time = DateTime.Now.ToLocalTime()
+        });
     }
 }
