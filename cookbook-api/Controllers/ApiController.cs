@@ -12,7 +12,6 @@ public class ApiController(
     RecipeService recipeService,
     OrderService orderService,
     IEmailService emailService,
-    WebScraperService webScraperService,
     IBackgroundTaskQueue taskQueue
 ) : ControllerBase
 {
@@ -119,7 +118,7 @@ public class ApiController(
     }
 
     [HttpGet("recipe")]
-    public async Task<IActionResult> GetRecipes([FromQuery] string query, [FromQuery] bool scrape = false,
+    public async Task<IActionResult> GetRecipes([FromQuery] string? query, [FromQuery] bool scrape = false,
         [FromQuery] string? site = null)
     {
         if (string.IsNullOrWhiteSpace(query))
@@ -130,9 +129,7 @@ public class ApiController(
 
         try
         {
-            var recipes = scrape
-                ? (IEnumerable<object>)await webScraperService.ScrapeForRecipesAsync(query, site)
-                : await recipeService.GetRecipes(query);
+            var recipes = await recipeService.GetRecipes(query, null, scrape);
 
             if (recipes.ToList().Count == 0)
             {

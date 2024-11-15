@@ -20,10 +20,11 @@ public class AnalyzeRecipePrompt : PromptBase
         2. Analyze the recipe's compliance with the specified criteria in the cookbook order, focusing only on the information provided.
         3. Evaluate the recipe's overall relevancy and appropriateness against the user's expectations.
         4. Assign a quality score from 1 to 100, where:
-           - 1-50: Significant issues or misalignment with requirements
-           - 51-70: Notable problems, but some alignment with requirements
-           - 71-85: Generally good, with minor issues
-           - 86-100: Excellent, fully or nearly fully aligned with requirements
+           - 1-49: Significant issues or misalignment with requirements
+           - 50-69: Notable problems, but some alignment with requirements
+           - 70-79: Generally good, with minor issues
+           - 80-89: Excellent, nearly fully aligned with requirements
+           - 90-100: Outstanding, perfectly aligned with requirements
         5. Provide a strict, critical analysis of the recipe's strengths and weaknesses.
         6. Formulate clear, actionable suggestions for the recipe synthesizer to improve the recipe.
         7. Use the AnalyzeRecipe function to submit your assessment.
@@ -60,7 +61,7 @@ public class AnalyzeRecipePrompt : PromptBase
         Remember, your role is crucial in ensuring the final cookbook's quality. Your strict analysis and clear suggestions are vital for guiding the synthesizer AI towards creating recipes that perfectly match the user's specifications.
         """;
 
-    public string GetUserPrompt(SynthesizedRecipe recipe, CookbookOrder order, string recipeName) =>
+    public string GetUserPrompt(SynthesizedRecipe recipe, CookbookOrder order, string? recipeName) =>
         $"""
          <requested-recipe-name>{recipeName}</requested-recipe-name>
          <cookbook-order>
@@ -80,6 +81,7 @@ public class AnalyzeRecipePrompt : PromptBase
     {
         Name = "AnalyzeRecipe",
         Description = "Analyze a synthesized recipe based on the cookbook order specifications",
+        Strict = true,
         Parameters = JsonSerializer.Serialize(new
         {
             type = "object",

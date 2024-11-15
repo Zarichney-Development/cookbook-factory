@@ -8,7 +8,7 @@ namespace Cookbook.Factory.Models;
 public class Recipe
 {
     public string? Id { get; set; }
-    public required string Title { get; set; }
+    public required string? Title { get; set; }
     public required string Description { get; set; }
     public required string Servings { get; set; }
     public required string PrepTime { get; set; }
@@ -21,7 +21,7 @@ public class Recipe
     public string? RecipeUrl { get; set; }
     public string? ImageUrl { get; set; }
     public required List<string> Aliases { get; set; }
-    public required string IndexTitle { get; set; }
+    public required string? IndexTitle { get; set; }
     public required Dictionary<string, RelevancyResult> Relevancy { get; set; }
 }
 
@@ -57,7 +57,7 @@ public class CleanedRecipe
 
 public class SynthesizedRecipe
 {
-    public required string Title { get; set; }
+    public required string? Title { get; set; }
     public required string Description { get; set; }
     public required string Servings { get; set; }
     public required string PrepTime { get; set; }
@@ -91,18 +91,11 @@ public class SynthesizedRecipe
         sb.Append(this.ToMarkdownHeader(nameof(Title)));
 
         sb.AppendLine(this.ToMarkdownProperty(nameof(Servings)));
-        sb.Append("&emsp;");
-        sb.Append("&emsp;");
-        sb.Append(this.ToMarkdownProperty(nameof(CookTime)));
+        sb.AppendLine(this.ToMarkdownProperty(nameof(CookTime)));
+        sb.AppendLine(this.ToMarkdownProperty(nameof(PrepTime)));
+        sb.AppendLine(this.ToMarkdownProperty(nameof(TotalTime)));
         sb.AppendLine();
-        sb.Append(this.ToMarkdownProperty(nameof(PrepTime)));
-        sb.Append("&emsp;");
-        sb.Append("&emsp;");
-        sb.Append(this.ToMarkdownProperty(nameof(TotalTime)));
-        sb.AppendLine();
-        sb.AppendLine();
-
-        sb.AppendLine(this.ToMarkdownSection(nameof(Description), false));
+        sb.Append(this.ToMarkdownSection(nameof(Description), false));
         sb.AppendLine(Utils.ToMarkdownHorizontalRule());
 
         sb.Append(this.ToMarkdownList(nameof(Ingredients)));
@@ -112,7 +105,7 @@ public class SynthesizedRecipe
 
         if (ImageUrls?.Count > 0)
         {
-            sb.AppendLine(Utils.ToMarkdownImage(Title, $"{FileService.SanitizeFileName(Title)}.jpg"));
+            sb.AppendLine(Utils.ToMarkdownImage(Title, $"{FileService.SanitizeFileName(Title!)}.jpg"));
         }
 
         sb.Append(this.ToMarkdownList(nameof(InspiredBy)));
@@ -125,7 +118,12 @@ public class AutoMapperProfile : Profile
 {
     public AutoMapperProfile()
     {
-        CreateMap<CleanedRecipe, Recipe>().ReverseMap();
+        CreateMap<CleanedRecipe, Recipe>()
+            .ForAllMembers(opts => opts.Condition((_, _, srcMember) => srcMember != null));
+        CreateMap<Recipe, CleanedRecipe>();
+        CreateMap<Recipe, Recipe>()
+            .ForAllMembers(opts => opts.Condition((_, _, _, destMember) => destMember == null));
+        
         CreateMap<ScrapedRecipe, Recipe>()
             .ForMember(dest => dest.Aliases, opt => opt.MapFrom(src => new List<string>()))
             .ForMember(dest => dest.Relevancy, opt => opt.MapFrom(src => new Dictionary<string, RelevancyResult>()))

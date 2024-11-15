@@ -1,6 +1,5 @@
 using System.Net;
 using Cookbook.Factory.Config;
-using Cookbook.Factory.Services;
 using ILogger = Serilog.ILogger;
 
 namespace Cookbook.Factory.Middleware;

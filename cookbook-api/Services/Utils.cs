@@ -16,6 +16,15 @@ public static class Utils
                })
            ?? throw new JsonException($"Failed to deserialize function arguments: {content} for type {typeof(T).Name}");
 
+    public static T Deserialize<T>(JsonDocument content)
+        => content.Deserialize<T>(
+               new JsonSerializerOptions
+               {
+                   PropertyNameCaseInsensitive = true,
+                   IncludeFields = true
+               })
+           ?? throw new JsonException($"Failed to deserialize function arguments: {content} for type {typeof(T).Name}");
+
     public static string SplitCamelCase(string input)
     {
         return string.Concat(input.Select((x, i) => i > 0 && char.IsUpper(x) ? " " + x : x.ToString()));
@@ -35,19 +44,19 @@ public static class Utils
     }
 
     // MarkdownConverter methods
-    public static string ToMarkdownHeader(string text, int level = 1)
+    public static string ToMarkdownHeader(string? text, int level = 1)
     {
         return $"{new string('#', level)} {text}\n\n";
     }
 
-    public static string ToMarkdownImage(string altText, string url)
+    public static string ToMarkdownImage(string? altText, string? url)
     {
         return $"![{altText}]({url})\n\n";
     }
 
-    public static string ToMarkdownProperty(string name, string value)
+    public static string ToMarkdownProperty(string? name, string? value)
     {
-        return $"**{name}:** {value}\t";
+        return $"**{name}:** {value}\n";
     }
 
     public static string ToMarkdownList(IEnumerable<string> items, bool numbered = false)
@@ -56,7 +65,7 @@ public static class Utils
             numbered ? $"{index + 1}. {item}" : $"- {item}")) + "\n\n";
     }
 
-    public static string ToMarkdownSection(string title, string content)
+    public static string ToMarkdownSection(string? title, string? content)
     {
         var sb = new StringBuilder();
         if (!string.IsNullOrEmpty(title))
@@ -113,7 +122,7 @@ public static class Utils
 
 public static class ObjectExtensions
 {
-    public static string ToMarkdown(this object obj, string title)
+    public static string ToMarkdown(this object obj, string? title)
     {
         var sb = new StringBuilder($"## {title}\n");
         var properties = obj.GetType().GetProperties();
@@ -196,7 +205,7 @@ public static class ObjectExtensions
     {
         var content = Utils.GetPropertyValue(obj, propertyName);
         if (string.IsNullOrWhiteSpace(content)) return string.Empty;
-        string title = string.Empty;
+        var title = string.Empty;
         if (includeTitle)
         {
             title = Utils.SplitCamelCase(propertyName);

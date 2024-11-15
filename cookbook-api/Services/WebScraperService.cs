@@ -1,7 +1,6 @@
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
-using System.Text.Json;
 using AngleSharp;
 using AngleSharp.Dom;
 using Cookbook.Factory.Config;
@@ -19,7 +18,12 @@ public class WebscraperConfig : IConfig
     public int MaxParallelSites { get; init; } = 5;
 }
 
-public class WebScraperService(WebscraperConfig config, ChooseRecipesPrompt chooseRecipesPrompt, ILlmService llmService)
+public class WebScraperService(
+    WebscraperConfig config,
+    ChooseRecipesPrompt chooseRecipesPrompt,
+    ILlmService llmService,
+    IFileService fileService
+)
 {
     private readonly ILogger _log = Log.ForContext<WebScraperService>();
 
@@ -28,13 +32,13 @@ public class WebScraperService(WebscraperConfig config, ChooseRecipesPrompt choo
     internal async Task<List<ScrapedRecipe>> ScrapeForRecipesAsync(string query, string? targetSite = null)
     {
         // Pulls the list of sites from config with their selectors
-        _siteSelectors = await LoadSiteSelectors();
+        _siteSelectors ??= await LoadSiteSelectors();
 
-        var allRecipes = new ConcurrentBag<ScrapedRecipe>();
-        var tasks = new List<Task>();
-        var semaphore = new SemaphoreSlim(config.MaxParallelSites);
+        // Randomize sites to increase diversification over repeated queries
+        _siteSelectors = _siteSelectors.OrderBy(_ => Guid.NewGuid()).ToDictionary(pair => pair.Key, pair => pair.Value);
 
-        foreach (var site in _siteSelectors)
+        // Filter out sites that are missing required selectors or are not the target site
+        var sitesToProcess = _siteSelectors.Where(site =>
         {
             if (string.IsNullOrEmpty(site.Value["base_url"]) || string.IsNullOrEmpty(site.Value["search_page"]))
             {
@@ -43,57 +47,100 @@ public class WebScraperService(WebscraperConfig config, ChooseRecipesPrompt choo
                     _log.Warning("Site {site} is missing the search page URL", site.Key);
                 }
 
-                continue;
+                return false;
             }
 
-            if (!string.IsNullOrEmpty(targetSite) && site.Key != targetSite)
-            {
-                continue;
-            }
+            return string.IsNullOrEmpty(targetSite) || site.Key == targetSite;
+        });
 
-            await semaphore.WaitAsync();
+        var allSiteRecipes = new ConcurrentBag<KeyValuePair<string,List<ScrapedRecipe>>>();
 
-            tasks.Add(Task.Run(async () =>
+        await Parallel.ForEachAsync(sitesToProcess,
+            new ParallelOptions { MaxDegreeOfParallelism = config.MaxParallelSites },
+            async (site, _) =>
             {
                 try
                 {
                     // Use the search page of each site to collect urls for recipe pages
                     var recipeUrls = await SearchSiteForRecipeUrls(site.Key, query);
 
-                    // Conditionally use LLM to return the most relevant URLs
+                    // Rank and filter down search results using LLM to return the most relevant URLs in respect to max per site
                     var relevantUrls = await SelectMostRelevantUrls(site.Key, recipeUrls, query);
 
                     if (recipeUrls.Count > 0)
                     {
                         // Use the site's selectors to extract the text from the html and return the data
                         var scrapedRecipes = await ScrapeSiteForRecipesAsync(site.Key, relevantUrls, query);
-
-                        foreach (var recipe in scrapedRecipes)
-                        {
-                            allRecipes.Add(recipe);
-                        }
+                        
+                        allSiteRecipes.Add(new KeyValuePair<string, List<ScrapedRecipe>>(site.Key, scrapedRecipes));
                     }
                 }
                 catch (Exception ex)
                 {
                     _log.Error(ex, $"Error scraping recipes from site: {site.Key}");
                 }
-                finally
+            });
+
+        // Sort all recipes by the top choice from each site before going through the next best choice
+        var allRecipes = InterleaveRecipes(allSiteRecipes);
+
+        _log.Information("Web scraped a total of {count} recipes for {query}", allRecipes.Count, query);
+
+        return allRecipes;
+    }
+    
+    /// <summary>
+    /// Flattens the results from each site into ranked single list
+    /// </summary>
+    /// <param name="allSiteRecipes">The collection of scraped recipe</param>
+    /// <returns>A single list, ordered by each site's top choices</returns>
+    private static List<ScrapedRecipe> InterleaveRecipes(ConcurrentBag<KeyValuePair<string, List<ScrapedRecipe>>> allSiteRecipes)
+    {
+        // Pre-calculate the total capacity needed to avoid resizing
+        var totalCapacity = allSiteRecipes.Sum(kvp => kvp.Value.Count);
+        var recipeLists = new List<ScrapedRecipe>(totalCapacity);
+    
+        // Convert ConcurrentBag to array once for better performance
+        var allRecipes = allSiteRecipes.Select(kvp => kvp.Value).ToArray();
+    
+        if (allRecipes.Length == 0)
+            return recipeLists;
+
+        // Use Span<T> for better performance when accessing arrays
+        var currentIndices = allRecipes.Length <= 1000
+            ? stackalloc int[allRecipes.Length]
+            : new int[allRecipes.Length];
+    
+        // Track remaining items for early termination
+        var remainingItems = totalCapacity;
+    
+        while (remainingItems > 0)
+        {
+            var addedInRound = false;
+        
+            for (var siteIndex = 0; siteIndex < allRecipes.Length; siteIndex++)
+            {
+                var currentIndex = currentIndices[siteIndex];
+                var recipeList = allRecipes[siteIndex];
+            
+                if (currentIndex < recipeList.Count)
                 {
-                    semaphore.Release();
+                    recipeLists.Add(recipeList[currentIndex]);
+                    currentIndices[siteIndex]++;
+                    remainingItems--;
+                    addedInRound = true;
                 }
-            }));
+            }
+        
+            // If no items were added in this round, we're done
+            if (!addedInRound)
+                break;
         }
 
-        await Task.WhenAll(tasks);
-
-        var recipes = allRecipes.ToList();
-        _log.Information("Web scraped a total of {count} recipes for {query}", recipes.Count, query);
-
-        return recipes;
+        return recipeLists;
     }
 
-    private async Task<List<string>> SelectMostRelevantUrls(string site, List<string> recipeUrls, string query)
+    private async Task<List<string>> SelectMostRelevantUrls(string site, List<string> recipeUrls, string? query)
     {
         if (recipeUrls.Count <= config.MaxNumRecipesPerSite)
         {
@@ -171,24 +218,21 @@ public class WebScraperService(WebscraperConfig config, ChooseRecipesPrompt choo
             query, site);
         return recipeUrls!;
     }
-
-    private async Task<List<ScrapedRecipe>> ScrapeSiteForRecipesAsync(string site, List<string> recipeUrls,
-        string query)
+    
+    private async Task<List<ScrapedRecipe>> ScrapeSiteForRecipesAsync(string site, List<string> recipeUrls, string? query)
     {
-        var scrapedRecipes = new ConcurrentQueue<ScrapedRecipe>();
-        var semaphore = new SemaphoreSlim(config.MaxParallelTasks);
-
-        var amountToScrap = Math.Min(recipeUrls.Count, config.MaxNumRecipesPerSite);
+        var scrapedRecipes = new ConcurrentBag<ScrapedRecipe>();
+        var amountToScrape = Math.Min(recipeUrls.Count, config.MaxNumRecipesPerSite);
 
         _log.Information("Scraping {count} recipes from site '{site}' for recipe '{recipe}'",
-            amountToScrap, site, query);
+            amountToScrape, site, query);
 
-        await Parallel.ForEachAsync(recipeUrls.TakeWhile(_ => scrapedRecipes.Count < config.MaxNumRecipesPerSite),
+        var urlsToProcess = recipeUrls.Take(amountToScrape);
+
+        await Parallel.ForEachAsync(urlsToProcess,
             new ParallelOptions { MaxDegreeOfParallelism = config.MaxParallelTasks },
-            async (url, ct) =>
+            async (url, _) =>
             {
-                await semaphore.WaitAsync(ct);
-
                 try
                 {
                     var fullUrl = url.StartsWith("https://") ? url : $"{_siteSelectors![site]["base_url"]}{url}";
@@ -196,16 +240,16 @@ public class WebScraperService(WebscraperConfig config, ChooseRecipesPrompt choo
                     {
                         _log.Information("Scraping {recipe} recipe from {url}", query, url);
                         var recipe = await ParseRecipeFromSite(fullUrl, _siteSelectors![site]);
-                        scrapedRecipes.Enqueue(recipe);
+                        scrapedRecipes.Add(recipe);
                     }
                     catch (Exception ex)
                     {
                         _log.Warning(ex, $"Error parsing recipe from URL: {fullUrl}");
                     }
                 }
-                finally
+                catch (Exception ex)
                 {
-                    semaphore.Release();
+                    _log.Error(ex, $"Error in scraping URL: {url}");
                 }
             });
 
@@ -245,17 +289,14 @@ public class WebScraperService(WebscraperConfig config, ChooseRecipesPrompt choo
 
     public static string GenerateUrlFingerprint(string url)
     {
-        using (SHA256 sha256 = SHA256.Create())
+        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(url));
+        var builder = new StringBuilder();
+        foreach (var b in bytes)
         {
-            byte[] bytes = sha256.ComputeHash(Encoding.UTF8.GetBytes(url));
-            StringBuilder builder = new StringBuilder();
-            foreach (byte b in bytes)
-            {
-                builder.Append(b.ToString("x2"));
-            }
-
-            return builder.ToString();
+            builder.Append(b.ToString("x2"));
         }
+
+        return builder.ToString();
     }
 
     private string? ExtractText(IDocument document, string selector, string? attribute = null)
@@ -313,9 +354,6 @@ public class WebScraperService(WebscraperConfig config, ChooseRecipesPrompt choo
         return results.Count == 0 ? null : results;
     }
 
-    private static async Task<Dictionary<string, Dictionary<string, string>>> LoadSiteSelectors()
-    {
-        var json = await File.ReadAllTextAsync("Config/site_selectors.json");
-        return JsonSerializer.Deserialize<Dictionary<string, Dictionary<string, string>>>(json)!;
-    }
+    private async Task<Dictionary<string, Dictionary<string, string>>> LoadSiteSelectors()
+        => await fileService.ReadFromFile<Dictionary<string, Dictionary<string, string>>>("Config", "site_selectors");
 }

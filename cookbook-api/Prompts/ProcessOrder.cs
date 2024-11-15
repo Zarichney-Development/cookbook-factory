@@ -87,6 +87,7 @@ public class ProcessOrderPrompt : PromptBase
     {
         Name = "GenerateCookbookRecipes",
         Description = "Generate a list of recipes for a cookbook based on the user's preferences and requirements",
+        Strict = true,
         Parameters = JsonSerializer.Serialize(new
         {
             type = "object",

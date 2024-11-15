@@ -42,6 +42,22 @@ public class EmailService(
     public async Task SendEmail(string recipient, string subject, string templateName,
         Dictionary<string, object> templateData, byte[] pdf)
     {
+        string bodyContent;
+        try
+        {
+            bodyContent = await templateService.ApplyTemplate(templateName, templateData);
+            
+            if (string.IsNullOrEmpty(bodyContent))
+            {
+                throw new Exception("Email body content is empty");
+            }
+        }
+        catch (Exception e)
+        {
+            _log.Error(e, "Error applying email template: {TemplateName} for recipient {Recipient}", templateName, recipient);
+            throw;
+        }
+        
         var message = new Message
         {
             Subject = subject,
@@ -55,28 +71,27 @@ public class EmailService(
             Body = new ItemBody
             {
                 ContentType = BodyType.Html,
-                Content = templateService.ApplyTemplate(templateName, templateData)
+                Content = bodyContent
             },
-            ToRecipients = new List<Recipient>
-            {
-                new()
+            ToRecipients =
+            [
+                new Recipient
                 {
                     EmailAddress = new EmailAddress
                     {
                         Address = recipient
                     }
                 }
-            }
-        };
-
-        message.Attachments = new List<Attachment>
-        {
-            new FileAttachment
-            {
-                Name = "Cookbook.pdf",
-                ContentType = "application/pdf",
-                ContentBytes = pdf
-            }
+            ],
+            Attachments =
+            [
+                new FileAttachment
+                {
+                    Name = "Cookbook.pdf",
+                    ContentType = "application/pdf",
+                    ContentBytes = pdf
+                }
+            ]
         };
 
         var requestBody = new SendMailPostRequestBody
@@ -89,15 +104,13 @@ public class EmailService(
         {
             _log.Information("Attempting to send email with configuration: {@EmailDetails}", new 
             {
-                FromEmail = config.FromEmail,
+                config.FromEmail,
                 ToEmail = recipient,
                 Subject = subject,
                 HasContent = !string.IsNullOrEmpty(message.Body.Content),
-                ContentLength = message.Body.Content?.Length,
-                HasAttachment = pdf != null,
-                AttachmentSize = pdf?.Length,
-                AzureAppId = config.AzureAppId,
-                HasTemplate = templateService != null
+                ContentLength = message.Body.Content?.Length ?? 0,
+                AttachmentSize = pdf.Length,
+                config.AzureAppId
             });
 
             var emailAccount = graphClient.Users[config.FromEmail];
@@ -108,7 +121,7 @@ public class EmailService(
         {
             _log.Error(e, "Error sending email. Request details: {@RequestDetails}", new 
             {
-                FromEmail = config.FromEmail,
+                config.FromEmail,
                 ToEmail = recipient,
                 Subject = subject,
                 MessageId = message.Id,
@@ -245,22 +258,15 @@ public enum InvalidEmailReason
     DisposableEmail
 }
 
-public class InvalidEmailException : Exception
+public class InvalidEmailException(string message, string email, InvalidEmailReason reason) : Exception(message)
 {
-    public string Email { get; }
-    public InvalidEmailReason Reason { get; }
-
-    public InvalidEmailException(string message, string email, InvalidEmailReason reason)
-        : base(message)
-    {
-        Email = email;
-        Reason = reason;
-    }
+    public string Email { get; } = email;
+    public InvalidEmailReason Reason { get; } = reason;
 }
 
 public interface ITemplateService
 {
-    string ApplyTemplate(string templateName, Dictionary<string, object> templateData);
+    Task<string> ApplyTemplate(string templateName, Dictionary<string, object> templateData);
 }
 
 public class TemplateService : ITemplateService
@@ -284,12 +290,12 @@ public class TemplateService : ITemplateService
         _compiledTemplates["base"] = Handlebars.Compile(baseTemplateContent);
     }
 
-    public string ApplyTemplate(string templateName, Dictionary<string, object> templateData)
+    public async Task<string> ApplyTemplate(string templateName, Dictionary<string, object> templateData)
     {
         if (!_compiledTemplates.TryGetValue(templateName, out var template))
         {
             var templatePath = Path.Combine(_templateDirectory, $"{templateName}.html");
-            var templateContent = File.ReadAllText(templatePath);
+            var templateContent = await _fileService.GetFileAsync(templatePath);
             template = Handlebars.Compile(templateContent);
             _compiledTemplates[templateName] = template;
         }

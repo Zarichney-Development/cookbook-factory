@@ -5,11 +5,10 @@ using QuestPDF.Fluent;
 using QuestPDF.Helpers;
 using QuestPDF.Infrastructure;
 using Markdig;
+using Markdig.Extensions.Tables;
 using Markdig.Syntax;
 using Markdig.Syntax.Inlines;
 using Serilog;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.Formats.Jpeg;
 using SixLabors.ImageSharp.Processing;
 using ILogger = Serilog.ILogger;
 using Image = SixLabors.ImageSharp.Image;
@@ -27,7 +26,7 @@ public class PdfCompilerConfig : IConfig
     public int ImageWidth { get; init; } = 400;
 }
 
-public class PdfCompiler(PdfCompilerConfig config)
+public class PdfCompiler(PdfCompilerConfig config, IFileService fileService)
 {
     private readonly ILogger _log = Log.ForContext<PdfCompiler>();
 
@@ -42,6 +41,7 @@ public class PdfCompiler(PdfCompilerConfig config)
     public async Task<byte[]> CompileCookbook(CookbookOrder order)
     {
         QuestPDF.Settings.License = LicenseType.Community;
+        QuestPDF.Settings.EnableDebugging = false;
 
         var recipes = order.SynthesizedRecipes!;
         var processedContent = new List<(MarkdownDocument Content, string? ImagePath)>();
@@ -57,7 +57,7 @@ public class PdfCompiler(PdfCompilerConfig config)
                 string? imagePath = null;
                 if (recipe.ImageUrls?.Any() == true)
                 {
-                    imagePath = await ProcessFirstValidImage(recipe.ImageUrls, recipe.Title);
+                    imagePath = await ProcessFirstValidImage(recipe.ImageUrls, recipe.Title!);
                 }
 
                 processedContent.Add((parsedContent, imagePath));
@@ -174,14 +174,24 @@ public class PdfCompiler(PdfCompilerConfig config)
 
             using (var image = Image.Load(imageBytes))
             {
+                var targetWidth = Math.Min(400, image.Width);
+                var targetHeight = (int)(targetWidth * ((float)image.Height / image.Width));
+
+                // Ensure height doesn't exceed 300px
+                if (targetHeight > 300)
+                {
+                    targetHeight = 300;
+                    targetWidth = (int)(targetHeight * ((float)image.Width / image.Height));
+                }
+
                 image.Mutate(x => x.Resize(new ResizeOptions
                 {
-                    Size = new Size(config.ImageWidth, 0),
-                    Mode = ResizeMode.Max
+                    Size = new Size(targetWidth, targetHeight),
+                    Mode = ResizeMode.Max,
+                    Position = AnchorPositionMode.Center
                 }));
 
-                await using var fileStream = File.Create(outputPath);
-                await image.SaveAsJpegAsync(fileStream, new JpegEncoder { Quality = 90 });
+                await fileService.CreateFile(outputPath, image, "image/jpeg");
             }
 
             _log.Information("Image processed successfully: {FileName}", outputPath);
@@ -194,18 +204,17 @@ public class PdfCompiler(PdfCompilerConfig config)
         }
     }
 
-    private Task CleanupImages(List<string> fileNames)
+    private Task CleanupImages(List<string?> fileNames)
     {
         foreach (var fileName in fileNames)
         {
+            if (string.IsNullOrWhiteSpace(fileName)) continue;
             var pattern = Path.Combine(config.ImageDirectory, $"{FileService.SanitizeFileName(fileName)}*.jpg");
             try
             {
-                foreach (var file in Directory.GetFiles(Path.GetDirectoryName(pattern)!,
-                             Path.GetFileName(pattern)))
+                foreach (var file in Directory.GetFiles(Path.GetDirectoryName(pattern)!, Path.GetFileName(pattern)))
                 {
-                    File.Delete(file);
-                    _log.Information("Deleted image: {FileName}", file);
+                    fileService.DeleteFile(file);
                 }
             }
             catch (Exception ex)
@@ -241,7 +250,7 @@ public class PdfCompiler(PdfCompilerConfig config)
 
                         foreach (var (doc, imagePath) in content)
                         {
-                            column.Item().Component(new RecipeComponent(doc, imagePath, config));
+                            column.Item().Component(new RecipeComponent(doc, imagePath, config, fileService));
 
                             // Only add page break if not the last item
                             if (doc != content.Last().Content)
@@ -263,42 +272,38 @@ public class PdfCompiler(PdfCompilerConfig config)
         }).GeneratePdf();
     }
 
-    private class RecipeComponent(MarkdownDocument document, string? imagePath, PdfCompilerConfig config)
+    private class RecipeComponent(
+        MarkdownDocument document,
+        string? imagePath,
+        PdfCompilerConfig config,
+        IFileService fileService)
         : IComponent
     {
         public void Compose(IContainer container)
         {
             container
-                .Shrink() // Allow content to take minimum space needed
+                .PaddingHorizontal(10)
                 .Column(column =>
                 {
                     column.Spacing(10);
                     var isFirstBlock = true;
+                    var metadata = new List<string>();
 
                     foreach (var block in document)
                     {
-                        // Special handling for title
-                        if (isFirstBlock && block is HeadingBlock titleBlock)
-                        {
-                            column.Item()
-                                .PaddingBottom(10)
-                                .Text(text => text
-                                    .Span(GetInlineText(titleBlock.Inline!))
-                                    .FontSize(config.FontSize + 8)
-                                    .Bold());
-                            isFirstBlock = false;
-                            continue;
-                        }
-
+                        var firstBlock = isFirstBlock;
                         column.Item().Element(elementContainer =>
                         {
                             switch (block)
                             {
                                 case HeadingBlock heading:
-                                    RenderHeading(elementContainer, heading);
+                                    RenderHeading(elementContainer, heading, firstBlock);
+                                    break;
+                                case Table table:
+                                    RenderTable(elementContainer, table);
                                     break;
                                 case ParagraphBlock paragraph:
-                                    RenderParagraph(elementContainer, paragraph);
+                                    RenderParagraph(elementContainer, paragraph, metadata);
                                     break;
                                 case ListBlock list:
                                     RenderList(elementContainer, list);
@@ -310,55 +315,198 @@ public class PdfCompiler(PdfCompilerConfig config)
                                     break;
                             }
                         });
+
+                        isFirstBlock = false;
                     }
                 });
         }
 
-        private void RenderHeading(IContainer container, HeadingBlock heading)
+        private void RenderHeading(IContainer container, HeadingBlock heading, bool isTitle = false)
         {
-            var fontSize = heading.Level switch
-            {
-                2 => config.FontSize + 6,
-                3 => config.FontSize + 4,
-                _ => config.FontSize + 2
-            };
+            var fontSize = isTitle
+                ? config.FontSize + 8
+                : heading.Level switch
+                {
+                    2 => config.FontSize + 6,
+                    3 => config.FontSize + 4,
+                    _ => config.FontSize + 2
+                };
 
             container
                 .Shrink()
-                .PaddingVertical(5)
                 .Text(text => text
                     .Span(GetInlineText(heading.Inline!))
                     .FontSize(fontSize)
                     .Bold());
         }
 
-        private void RenderParagraph(IContainer container, LeafBlock paragraph)
+        private void RenderTable(IContainer container, Table tableBlock)
         {
-            // Handle images
-            if (paragraph.Inline?.FirstOrDefault(x => x is LinkInline { IsImage: true }) is LinkInline &&
-                !string.IsNullOrEmpty(imagePath) && File.Exists(imagePath))
+            container.Table(table =>
+            {
+                // Define columns based on detected columns in the markdown table
+                table.ColumnsDefinition(columns =>
+                {
+                    // Count number of cells in first row to determine column count
+                    var firstRow = tableBlock.FirstOrDefault() as TableRow;
+                    if (firstRow == null) return;
+
+                    var columnCount = firstRow.Count;
+                    for (int i = 0; i < columnCount; i++)
+                    {
+                        columns.RelativeColumn();
+                    }
+                });
+
+                // Process each row
+                foreach (var row in tableBlock)
+                {
+                    if (row is not TableRow tableRow) continue;
+
+                    foreach (var cell in tableRow)
+                    {
+                        if (cell is not TableCell tableCell) continue;
+
+                        table.Cell().Element(cellContainer =>
+                        {
+                            cellContainer
+                                .Border(1)
+                                .BorderColor(Colors.Grey.Lighten2)
+                                .Padding(5)
+                                .Text(text =>
+                                {
+                                    foreach (var block in tableCell)
+                                    {
+                                        if (block is ParagraphBlock para && para.Inline != null)
+                                        {
+                                            text.Span(GetInlineText(para.Inline));
+                                        }
+                                    }
+                                });
+                        });
+                    }
+                }
+            });
+        }
+
+        private void RenderParagraph(IContainer container, ParagraphBlock paragraph, List<string> timeMetadata)
+        {
+            var text = GetInlineText(paragraph.Inline!);
+
+            if (text.StartsWith("Servings: "))
             {
                 container
                     .Shrink()
-                    .MaxHeight(180)
-                    .Image(imagePath)
-                    .FitArea();
+                    .Row(row =>
+                    {
+                        row.RelativeItem().Text(textBlock =>
+                        {
+                            textBlock.Span("Servings: ")
+                                .FontSize(12)
+                                .Bold();
+                            textBlock.Span(text["Servings: ".Length..])
+                                .FontSize(14);
+                        });
+                    });
                 return;
             }
 
-            // Handle text
-            var text = GetInlineText(paragraph.Inline!);
-            if (IsMetadataLine(text))
+            if (text.StartsWith("Prep Time: ") ||
+                text.StartsWith("Cook Time: ") ||
+                text.StartsWith("Total Time: "))
             {
-                RenderMetadataLine(container, text);
+                timeMetadata.Add(text);
+
+                if (timeMetadata.Count == 3)
+                {
+                    container
+                        .Shrink()
+                        .Row(row =>
+                        {
+                            foreach (var metadata in timeMetadata)
+                            {
+                                var parts = metadata.Split(": ", 2);
+                                if (parts.Length != 2) continue;
+
+                                var label = parts[0].Trim();
+                                var value = parts[1].Trim();
+
+                                row.RelativeItem()
+                                    .Text(textBlock =>
+                                    {
+                                        textBlock.Span($"{label}: ")
+                                            .SemiBold()
+                                            .FontSize(12);
+                                        textBlock.Span(value);
+                                    });
+
+                                if (metadata != timeMetadata.Last())
+                                {
+                                    // row.ConstantItem(10);
+                                    row.AutoItem().Width(10);
+                                }
+                            }
+                        });
+                    timeMetadata.Clear();
+                }
+
+                return;
             }
-            else
+
+            // Image handler
+            if (paragraph.Inline?.FirstOrDefault(x => x is LinkInline
+                {
+                    IsImage:
+                    true
+                }) is LinkInline &&
+                fileService.FileExists(imagePath))
             {
-                container
-                    .Shrink()
-                    .PaddingVertical(5)
-                    .Text(textContent => RenderInlines(textContent, paragraph.Inline));
+                try
+                {
+                    using var image = Image.Load(imagePath!);
+                    var aspectRatio = (float)image.Width / image.Height;
+                    var maxWidth = 400f;
+                    var maxHeight = 300f;
+
+                    var targetWidth = Math.Min(maxWidth, image.Width);
+                    var targetHeight = targetWidth / aspectRatio;
+
+                    if (targetHeight > maxHeight)
+                    {
+                        targetHeight = maxHeight;
+                        targetWidth = targetHeight * aspectRatio;
+                    }
+
+                    container
+                        .Shrink()
+                        .AlignCenter()
+                        .Padding(10)
+                        .MinWidth(100)
+                        .MinHeight(100)
+                        .MaxWidth(targetWidth)
+                        .MaxHeight(targetHeight)
+                        .Image(imagePath)
+                        .FitWidth();
+                }
+                catch
+                {
+                    container
+                        .Shrink()
+                        .AlignCenter()
+                        .Padding(10)
+                        .MaxWidth(300)
+                        .Image(imagePath)
+                        .FitWidth();
+                }
+
+                return;
             }
+
+            // Regular text paragraph
+            container
+                .Shrink()
+                .PaddingVertical(2)
+                .Text(text => RenderInlines(text, paragraph.Inline));
         }
 
         private void RenderList(IContainer container, ListBlock list)
@@ -376,47 +524,16 @@ public class PdfCompiler(PdfCompilerConfig config)
                         if (item.Descendants<ParagraphBlock>().FirstOrDefault() is not { } paragraph)
                             continue;
 
-                        var index1 = index;
                         column.Item().Row(row =>
                         {
-                            var currentIndex = index1;
                             row.ConstantItem(20).Text(text =>
-                                text.Span(list.IsOrdered ? $"{currentIndex}." : "•"));
+                                text.Span(list.IsOrdered ? $"{index}." : "•"));
 
                             row.RelativeItem().Text(text =>
                                 RenderInlines(text, paragraph.Inline));
                         });
 
                         index++;
-                    }
-                });
-        }
-
-        private void RenderMetadataLine(IContainer container, string text)
-        {
-            container
-                .Shrink()
-                .Row(row =>
-                {
-                    var parts = text.Split(new[] { "**" }, StringSplitOptions.None);
-                    for (var i = 0; i < parts.Length; i++)
-                    {
-                        if (string.IsNullOrEmpty(parts[i])) continue;
-
-                        var index = i;
-                        row.AutoItem().Text(textContent =>
-                        {
-                            var span = textContent.Span(parts[index]);
-                            if (index % 2 == 1) // Bold sections
-                            {
-                                span.Bold();
-                            }
-                        });
-
-                        if (i < parts.Length - 1)
-                        {
-                            row.AutoItem().Width(10);
-                        }
                     }
                 });
         }
@@ -432,7 +549,6 @@ public class PdfCompiler(PdfCompilerConfig config)
                     case LiteralInline literal:
                         text.Span(literal.Content.ToString());
                         break;
-
                     case EmphasisInline emphasis:
                         var span = text.Span(GetInlineText(emphasis));
                         if (emphasis.DelimiterCount == 2)
@@ -440,21 +556,11 @@ public class PdfCompiler(PdfCompilerConfig config)
                         else
                             span.Italic();
                         break;
-
                     case LinkInline { IsImage: false } link:
-                        text.Hyperlink(link.Title ?? link.Url, link.Url);
+                        text.Hyperlink(link.Title ?? link.Url!, link.Url!);
                         break;
                 }
             }
-        }
-
-        private static bool IsMetadataLine(string text)
-        {
-            var normalizedText = text.Replace("**", "");
-            return normalizedText.Contains("Servings:", StringComparison.OrdinalIgnoreCase) ||
-                   normalizedText.Contains("Prep Time:", StringComparison.OrdinalIgnoreCase) ||
-                   normalizedText.Contains("Cook Time:", StringComparison.OrdinalIgnoreCase) ||
-                   normalizedText.Contains("Total Time:", StringComparison.OrdinalIgnoreCase);
         }
 
         private static string GetInlineText(ContainerInline inline)
@@ -469,8 +575,7 @@ public class PdfCompiler(PdfCompilerConfig config)
                         break;
                     case EmphasisInline emphasis:
                         var emphasisText = GetInlineText(emphasis);
-                        var marker = emphasis.DelimiterCount == 2 ? "**" : "*";
-                        text.Append($"{marker}{emphasisText}{marker}");
+                        text.Append(emphasisText);
                         break;
                 }
             }

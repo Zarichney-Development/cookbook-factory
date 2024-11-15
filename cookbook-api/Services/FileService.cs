@@ -5,6 +5,8 @@ using System.Text.Json;
 using Polly;
 using Polly.Retry;
 using Serilog;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Formats.Jpeg;
 using ILogger = Serilog.ILogger;
 
 namespace Cookbook.Factory.Services;
@@ -16,7 +18,11 @@ public interface IFileService : IDisposable
     Task<T> ReadFromFile<T>(string directory, string filename, string extension = "json");
     string[] GetFiles(string directoryPath);
     string GetFile(string filePath);
+    Task<string> GetFileAsync(string filePath);
     Task<byte[]> GetFileBytes(string filePath);
+    Task CreateFile(string filePath, object data, string fileType);
+    void DeleteFile(string filePath);
+    bool FileExists(string? filePath);
 }
 
 public class FileService : IFileService
@@ -33,7 +39,8 @@ public class FileService : IFileService
             sleepDurationProvider: _ => TimeSpan.FromMilliseconds(200),
             onRetry: (exception, _, retryCount, context) =>
             {
-                Log.Warning(exception, "Read attempt {retryCount}: Retrying due to {exception}. Retry Context: {@Context}",
+                Log.Warning(exception,
+                    "Read attempt {retryCount}: Retrying due to {exception}. Retry Context: {@Context}",
                     retryCount, exception.Message, context);
             }
         );
@@ -55,6 +62,7 @@ public class FileService : IFileService
         _processQueueTask.Wait();
         _cancellationTokenSource.Dispose();
     }
+
     public async Task WriteToFile(string directory, string filename, object data, string extension = "json")
     {
         object content;
@@ -198,13 +206,13 @@ public class FileService : IFileService
                 switch (extension.ToLower())
                 {
                     case "json":
-                        var jsonContent = await File.ReadAllTextAsync(filePath);
-                        return JsonSerializer.Deserialize<object>(jsonContent);
+                        var jsonContent = await GetFileAsync(filePath);
+                        return Utils.Deserialize<object>(jsonContent);
                     case "md":
                     case "txt":
-                        return await File.ReadAllTextAsync(filePath);
+                        return await GetFileAsync(filePath);
                     case "pdf":
-                        return await File.ReadAllBytesAsync(filePath);
+                        return await GetFileBytes(filePath);
                     default:
                         throw new ArgumentException($"Unsupported file extension: {extension}");
                 }
@@ -234,14 +242,48 @@ public class FileService : IFileService
 
     public string GetFile(string filePath)
     {
+        var task = GetFileAsync(filePath);
+        task.Wait();
+        return task.Result;
+    }
+
+    public async Task<string> GetFileAsync(string filePath)
+    {
         _log.Verbose("Read All Text from '{FilePath}'", filePath);
-        return File.ReadAllText(filePath);
+        return await File.ReadAllTextAsync(filePath);
     }
 
     public async Task<byte[]> GetFileBytes(string filePath)
     {
+        _log.Verbose("Read All Bytes from '{FilePath}'", filePath);
         return await File.ReadAllBytesAsync(filePath);
     }
+
+    public async Task CreateFile(string filePath, object data, string fileType)
+    {
+        switch (fileType.ToLower())
+        {
+            case "image/jpeg":
+                await using (var fileStream = File.Create(filePath))
+                {
+                    await ((Image?)data).SaveAsJpegAsync(fileStream, new JpegEncoder { Quality = 90 });
+                    _log.Information("Created JPEG file: {FilePath}", filePath);
+                }
+                return;
+            
+            default:
+                throw new ArgumentException($"Unsupported file type: {fileType}");
+        }
+    }
+
+    public void DeleteFile(string filePath)
+    {
+        File.Delete(filePath);
+        _log.Information("Deleted file: {FileName}", filePath);
+    }
+
+    public bool FileExists(string? filePath)
+        => !string.IsNullOrEmpty(filePath) && File.Exists(filePath);
 }
 
 public class WriteOperation(string directory, string filename, object data, string extension)

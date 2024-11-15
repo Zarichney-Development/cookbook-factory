@@ -1,3 +1,4 @@
+using System.Text.Json;
 using AutoMapper;
 using Cookbook.Factory.Config;
 using Cookbook.Factory.Prompts;
@@ -27,17 +28,16 @@ public interface ILlmService
     Task<string> CreateThread();
     Task CreateMessage(string threadId, string content, MessageRole role = MessageRole.User);
 
-    Task<string> CreateRun(string threadId, string assistantId, bool toolConstraintRequired = false,
-        bool parallelToolCallsEnabled = false);
+    Task<string> CreateRun(string threadId, string assistantId, bool toolConstraintRequired = false);
 
-    Task<ChatCompletion> GetCompletion(List<ChatMessage> messages, ChatCompletionOptions? options = null);
+    Task<ChatCompletion> GetCompletion(List<ChatMessage> messages, ChatCompletionOptions? options = null, int? retryCount = null);
 
     Task<(bool isComplete, RunStatus status)> GetRun(string threadId, string runId);
     Task<string> CancelRun(string threadId, string runId);
     Task SubmitToolOutputsToRun(string threadId, string runId, List<(string toolCallId, string output)> toolOutputs);
     Task DeleteAssistant(string assistantId);
     Task DeleteThread(string threadId);
-    Task<T> CallFunction<T>(string systemPrompt, string userPrompt, FunctionDefinition function);
+    Task<T> CallFunction<T>(string systemPrompt, string userPrompt, FunctionDefinition function, int? retryCount = null);
     Task<T> GetRunAction<T>(string threadId, string runId, string functionName);
     Task<string> GetToolCallId(string threadId, string runId, string functionName);
 }
@@ -57,6 +57,23 @@ public class LlmService(OpenAIClient client, IMapper mapper, LlmConfig config) :
                     retryCount, exception.Message, context);
             }
         );
+    
+    private async Task<T> ExecuteWithRetry<T>(int? retryCount, Func<Task<T>> action)
+    {
+        var policy = Policy
+            .Handle<Exception>()
+            .WaitAndRetryAsync(
+                retryCount: retryCount ?? config.RetryAttempts,
+                sleepDurationProvider: _ => TimeSpan.FromSeconds(1),
+                onRetry: (exception, _, currentRetry, context) =>
+                {
+                    Log.Warning(exception, "LLM attempt {retryCount}: Retrying due to {exception}. Retry Context: {@Context}",
+                        currentRetry, exception.Message, context);
+                }
+            );
+
+        return await policy.ExecuteAsync(action);
+    }
 
     public async Task<string> CreateAssistant(PromptBase prompt)
     {
@@ -114,15 +131,14 @@ public class LlmService(OpenAIClient client, IMapper mapper, LlmConfig config) :
         }
     }
 
-    public async Task<string> CreateRun(string threadId, string assistantId, bool toolConstraintRequired = false,
-        bool parallelToolCallsEnabled = false)
+    public async Task<string> CreateRun(string threadId, string assistantId, bool toolConstraintRequired = false)
     {
         try
         {
             var assistantClient = client.GetAssistantClient();
             var response = await assistantClient.CreateRunAsync(threadId, assistantId, new RunCreationOptions
             {
-                ParallelToolCallsEnabled = parallelToolCallsEnabled,
+
                 ToolConstraint = toolConstraintRequired ? ToolConstraint.Required : ToolConstraint.None,
             });
 
@@ -224,7 +240,7 @@ public class LlmService(OpenAIClient client, IMapper mapper, LlmConfig config) :
         }
     }
 
-    public async Task<T> CallFunction<T>(string systemPrompt, string userPrompt, FunctionDefinition function)
+    public async Task<T> CallFunction<T>(string systemPrompt, string userPrompt, FunctionDefinition function, int? retryCount = null)
     {
         Log.Information(
             "Getting response from model. System prompt: {systemPrompt}, User prompt: {userPrompt}, Function: {@function}",
@@ -236,25 +252,25 @@ public class LlmService(OpenAIClient client, IMapper mapper, LlmConfig config) :
             new UserChatMessage(userPrompt)
         };
 
-        var result = await _retryPolicy.ExecuteAsync(async () => await CallFunction<T>(function, messages));
+        var result =  await CallFunction<T>(function, messages, retryCount);
 
         return result;
     }
 
 
-    private async Task<T> CallFunction<T>(FunctionDefinition function, List<ChatMessage> messages)
+    private async Task<T> CallFunction<T>(FunctionDefinition function, List<ChatMessage> messages, int? retryCount = null)
         => await CallFunction<T>(messages, ChatTool.CreateFunctionTool(
             functionName: function.Name,
             functionDescription: function.Description,
             functionParameters: BinaryData.FromString(function.Parameters)
-        ));
+        ), retryCount);
 
-    private async Task<T> CallFunction<T>(List<ChatMessage> messages, ChatTool functionTool)
+    private async Task<T> CallFunction<T>(List<ChatMessage> messages, ChatTool functionTool, int? retryCount = null)
     {
         var chatCompletion = await GetCompletion(messages, new ChatCompletionOptions
         {
             Tools = { functionTool }
-        });
+        }, retryCount);
 
         if (chatCompletion.FinishReason != ChatFinishReason.ToolCalls)
         {
@@ -272,7 +288,8 @@ public class LlmService(OpenAIClient client, IMapper mapper, LlmConfig config) :
 
             try
             {
-                var result = Utils.Deserialize<T>(toolCall.FunctionArguments);
+                using var argumentsJson = JsonDocument.Parse(toolCall.FunctionArguments);
+                var result = Utils.Deserialize<T>(argumentsJson);
 
                 if (result != null)
                 {
@@ -292,16 +309,18 @@ public class LlmService(OpenAIClient client, IMapper mapper, LlmConfig config) :
     }
 
     public async Task<ChatCompletion> GetCompletion(List<ChatMessage> messages,
-        ChatCompletionOptions? options = null)
+        ChatCompletionOptions? options = null, int? retryCount = null)
     {
-        return await _retryPolicy.ExecuteAsync(async () =>
+        return await ExecuteWithRetry(retryCount, async () =>
         {
             var chatClient = client.GetChatClient(config.ModelName);
-            
+
             try
             {
+                Log.Information("Sending prompt to model");
+
                 var result = await chatClient.CompleteChatAsync(messages, options);
-                
+
                 Log.Information("Received response from model: {@result}", result);
 
                 return result;

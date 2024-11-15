@@ -80,7 +80,7 @@ public class OrderService(
 
     private async Task<List<SynthesizedRecipe>> ProcessRecipes(CookbookOrder order, bool isSample)
     {
-        var completedRecipes = new ConcurrentQueue<SynthesizedRecipe>();
+        var completedRecipes = new ConcurrentBag<SynthesizedRecipe>();
 
         var maxParallelTasks = config.MaxParallelTasks;
         if (isSample)
@@ -88,57 +88,65 @@ public class OrderService(
             maxParallelTasks = Math.Min(maxParallelTasks, config.MaxSampleRecipes);
         }
 
-        var semaphore = new SemaphoreSlim(maxParallelTasks);
-        var processingTasks = new List<Task>();
-
-        foreach (var recipeName in order.RecipeList)
-        {
-            if (isSample && completedRecipes.Count >= config.MaxSampleRecipes)
-            {
-                _log.Information("Sample size reached, stopping processing");
-                break;
-            }
-
-            processingTasks.Add(Task.Run(async () =>
-            {
-                try
-                {
-                    await ProcessRecipe(recipeName);
-                }
-                catch (Exception ex)
-                {
-                    _log.Error(ex, "Unhandled exception in ProcessRecipe for {RecipeName}", recipeName);
-                }
-            }));
-
-            if (processingTasks.Count >= config.MaxParallelTasks)
-            {
-                await Task.WhenAny(processingTasks);
-                processingTasks.RemoveAll(t => t.IsCompleted);
-            }
-        }
+        var cts = new CancellationTokenSource();
+        var completedCount = 0;
 
         try
         {
-            await Task.WhenAll(processingTasks);
+            await Parallel.ForEachAsync(order.RecipeList, new ParallelOptions
+                {
+                    MaxDegreeOfParallelism = maxParallelTasks,
+                    CancellationToken = cts.Token
+                },
+                async (recipeName, ct) =>
+                {
+                    try
+                    {
+                        // Check if sample size is reached
+                        if (isSample && Interlocked.CompareExchange(ref completedCount, 0, 0) >=
+                            config.MaxSampleRecipes)
+                        {
+                            _log.Information("Sample size reached, stopping processing");
+                            cts.Cancel();
+                            return;
+                        }
+
+                        await ProcessRecipe(recipeName, ct);
+
+                        // Increment the completed count after successful processing
+                        if (isSample && Interlocked.Increment(ref completedCount) >= config.MaxSampleRecipes)
+                        {
+                            _log.Information("Sample size reached, stopping processing");
+                            cts.Cancel();
+                        }
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        _log.Information("Processing of {RecipeName} was canceled.", recipeName);
+                    }
+                    catch (Exception ex)
+                    {
+                        _log.Error(ex, "Unhandled exception in ProcessRecipe for {RecipeName}", recipeName);
+                    }
+                });
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected when cancellation is requested
         }
         catch (Exception ex)
         {
-            _log.Error(ex, "Unhandled exception in one of the processing tasks.");
+            _log.Error(ex, "Unhandled exception during processing.");
         }
 
         return completedRecipes.ToList();
 
-        async Task ProcessRecipe(string recipeName)
+        async Task ProcessRecipe(string recipeName, CancellationToken ct)
         {
-            await semaphore.WaitAsync();
             try
             {
-                if (isSample && completedRecipes.Count >= config.MaxSampleRecipes)
-                {
-                    _log.Information("Sample size reached, stopping processing");
-                    return;
-                }
+                // Check for cancellation
+                ct.ThrowIfCancellationRequested();
 
                 List<Recipe> recipes;
                 try
@@ -147,8 +155,8 @@ public class OrderService(
                 }
                 catch (Exception ex)
                 {
-                    _log.Error(ex, "Omitting recipe {RecipeName} due to no recipes found", recipeName);
-                    return; // is this the right way to exit ProcessRecipe? 
+                    _log.Error(ex, "Recipe {RecipeName} aborted in error. Cannot include in cookbook.", recipeName);
+                    return;
                 }
 
                 var (result, rejects) = await recipeService.SynthesizeRecipe(recipes, order, recipeName);
@@ -163,11 +171,15 @@ public class OrderService(
                 result.ImageUrls = GetImageUrls(result, recipes);
 
                 WriteRecipeToOrderDir(order.OrderId, recipeName, result);
-                completedRecipes.Enqueue(result);
+                completedRecipes.Add(result);
             }
-            finally
+            catch (OperationCanceledException)
             {
-                semaphore.Release();
+                _log.Information("Processing of {RecipeName} was canceled.", recipeName);
+            }
+            catch (Exception ex)
+            {
+                _log.Error(ex, "Unhandled exception in ProcessRecipe for {RecipeName}", recipeName);
             }
         }
     }
@@ -226,7 +238,7 @@ public class OrderService(
             var recipeMarkdown = recipe.ToMarkdown();
             fileService.WriteToFileAsync(
                 Path.Combine(config.OutputDirectory, order.OrderId, "recipes"),
-                recipe.Title,
+                recipe.Title!,
                 recipeMarkdown,
                 "md"
             );
@@ -287,6 +299,11 @@ public class OrderService(
                 "Cookbook",
                 "pdf"
             );
+            
+            if (pdf == null || pdf.Length == 0)
+            {
+                throw new Exception($"Cookbook PDF not found for order {orderId}");
+            }
 
             _log.Information("Sending cookbook email to {Email}", order.Email);
 

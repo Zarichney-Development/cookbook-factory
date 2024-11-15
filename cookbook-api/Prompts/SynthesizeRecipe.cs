@@ -70,11 +70,13 @@ public class SynthesizeRecipePrompt : PromptBase
     {
         Name = "SynthesizeRecipe",
         Description = "Synthesize a personalized recipe using existing recipes and user's cookbook order",
+        Strict = true,
         Parameters = JsonSerializer.Serialize(new
         {
             type = "object",
             properties = new
             {
+                // TODO: Enhance these with descriptions
                 title = new { type = "string" },
                 description = new { type = "string" },
                 servings = new { type = "string" },

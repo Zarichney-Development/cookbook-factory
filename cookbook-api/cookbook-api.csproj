@@ -20,9 +20,9 @@
         <PackageReference Include="Azure.Identity" Version="1.12.0" />
         <PackageReference Include="Handlebars.Net" Version="2.1.6" />
         <PackageReference Include="Markdig" Version="0.37.0" />
-        <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="8.0.0"/>
+        <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="8.0.10" />
         <PackageReference Include="Microsoft.Graph" Version="5.56.0" />
-        <PackageReference Include="OpenAI" Version="2.0.0-beta.8" />
+        <PackageReference Include="OpenAI" Version="2.0.0" />
         <PackageReference Include="Polly" Version="8.4.1" />
         <PackageReference Include="RestSharp" Version="112.1.0" />
         <PackageReference Include="Serilog.AspNetCore" Version="8.0.1" />
@@ -36,7 +36,7 @@
         <PackageReference Include="System.Text.Encoding.CodePages" Version="8.0.0" />
         <PackageReference Include="SkiaSharp" Version="2.88.8" />
         <PackageReference Include="SkiaSharp.NativeAssets.Linux" Version="2.88.8" />
-        <PackageReference Include="QuestPDF" Version="2024.10.2" />
+        <PackageReference Include="QuestPDF" Version="2024.10.3" />
     </ItemGroup>
 
     <ItemGroup>

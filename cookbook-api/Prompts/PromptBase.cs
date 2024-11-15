@@ -17,6 +17,7 @@ public class FunctionDefinition
     public required string Name { get; set; }
     public required string Description { get; set; }
     public required string Parameters { get; set; }
+    public required bool Strict = true;
 }
 
 public class FunctionDefinitionMappingProfile : Profile

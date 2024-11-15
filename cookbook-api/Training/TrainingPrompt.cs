@@ -147,6 +147,7 @@ public class RecipeNamerTrainingPrompt
     {
         Name = "IndexRecipe",
         Description = "Provide a indexed title and aliases",
+        Strict = true,
         Parameters = JsonSerializer.Serialize(new
         {
             type = "object",

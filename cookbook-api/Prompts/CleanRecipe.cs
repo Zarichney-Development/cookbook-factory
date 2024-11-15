@@ -8,32 +8,38 @@ namespace Cookbook.Factory.Prompts;
 public class CleanRecipePrompt(IMapper mapper) : PromptBase
 {
     public override string Name => "Recipe Cleaner";
-    public override string Description => "Clean and standardize scraped recipe data";
+    public override string Description => "Clean and standardize recipe data";
     public override string Model => LlmModels.Gpt4Omini;
     public override string SystemPrompt => 
         """
-        You are specialized in cleaning and standardizing scraped recipe data. Follow these guidelines:
-        1. Standardize units of measurement (e.g., 'tbsp', 'tsp', 'g').
-        2. Correct spacing and spelling issues.
-        3. Format ingredients and directions as arrays of strings.
-        4. Standardize cooking times and temperatures (e.g., '350°F', '175°C').
-        5. Remove irrelevant or accidental scrapped content (e.g. 'Print Pin It' from the title).
-        6. Do not add new information or change the original recipe.
-        7. Leave empty fields as they are, replace nulls with empty strings.
-        8. Ensure consistent formatting.
-        Return a cleaned, standardized version of the recipe data, preserving original structure and information while improving clarity and consistency.
+        Please assist me in data migration from our legacy repository system in preparation for a data import.
+        Clean and standardize recipe data as follows:
+        1. Use consistent units (imperial or metric), and check spacing/spelling.
+        2. Format ingredients and directions as string arrays with no prefix.
+        3. Remove irrelevant content (e.g., "Print Pin It") or bad encoding chars (e.g. '[]').
+        4. Do not add or alter recipe details.
+        5. Keep empty fields; replace nulls with empty strings.
+        6. Ensure consistent formatting.
+        7. Exclude field names within field values (e.g., {'servings': '4'} and not {'servings': 'Servings 4'}).
         """;
 
     public string GetUserPrompt(Recipe recipe)
-        => $"Recipe data:\n{Serialize(recipe)}";
+        => $"""
+            Uncleaned Recipe Data:
+            ```json
+            {Serialize(recipe)}
+            ```
+            Return a clean json.
+            """;
         
     private string Serialize(Recipe recipe)
-        => JsonSerializer.Serialize(mapper.Map<ScrapedRecipe>(recipe));  
+        => JsonSerializer.Serialize(mapper.Map<CleanedRecipe>(recipe));  
 
     public override FunctionDefinition GetFunction() => new()
     {
         Name = "CleanRecipeData",
-        Description = "Clean and standardize scraped recipe data",
+        Description = "Clean and standardize recipe data",
+        Strict = true,
         Parameters = JsonSerializer.Serialize(new
         {
             type = "object",

@@ -13,18 +13,21 @@ public class RankRecipePrompt : PromptBase
         => """
            You are a specialist in assessing the relevancy of a recipe given a query.
            Your task is to identify whether the given recipe contains data related to an actual recipe.
-           Your goal is to provide a relevancy score of 0 if it's not a recipe and a score from 1 to 100 on how relevant a recipe is to the given query.";
+           Your goal is to provide a relevancy score of 0 if it's not a recipe and a score from 1 to 99 on how relevant a recipe is to the given query.
+           The value of 100 is reserved for particular specific queries that are a perfect match with the given recipe.
+           Provide a brief and concise explanation of your decision.
            """;
 
     public override string Model => LlmModels.Gpt4Omini;
 
-    public string GetUserPrompt(Recipe recipe, string query) =>
+    public string GetUserPrompt(Recipe recipe, string? query) =>
         $"Query: '{query}'\n\nRecipe data:\n{JsonSerializer.Serialize(recipe)}";
 
     public override FunctionDefinition GetFunction() => new()
     {
         Name = "RankRecipe",
         Description = "Assess the relevancy of a recipe based on a given query",
+        Strict = true,
         Parameters = JsonSerializer.Serialize(new
         {
             type = "object",
@@ -39,7 +42,7 @@ public class RankRecipePrompt : PromptBase
                 reasoning = new
                 {
                     type = "string",
-                    description = "A brief explanation of the relevancy decision"
+                    description = "A concise explanation of the relevancy decision"
                 },
             },
             required = new[] { "score", "reasoning" }
@@ -49,7 +52,7 @@ public class RankRecipePrompt : PromptBase
 
 public class RelevancyResult
 {
-    public required string Query { get; set; }
+    public string? Query { get; set; }
     public int Score { get; set; }
     public string? Reasoning { get; set; }
 }
