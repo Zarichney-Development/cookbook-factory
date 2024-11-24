@@ -28,6 +28,7 @@ class SiteSelectors
 
 public class WebScraperService(
     WebscraperConfig config,
+    IWebHostEnvironment env,
     ChooseRecipesPrompt chooseRecipesPrompt,
     ILlmService llmService,
     IFileService fileService
@@ -253,7 +254,8 @@ public class WebScraperService(
         try
         {
             using var playwright = await Playwright.CreateAsync();
-            await using var browser = await playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions
+
+            var browserOptions = new BrowserTypeLaunchOptions
             {
                 Headless = true,
                 Timeout = maxWaitTimeMs,
@@ -266,7 +268,15 @@ public class WebScraperService(
                     "--disable-web-security",
                     "--disable-features=IsolateOrigins,site-per-process"
                 ]
-            });
+            };
+
+            if (env.IsProduction())
+            {
+                browserOptions.Channel = "chrome";
+                browserOptions.ExecutablePath = "/usr/bin/google-chrome";
+            }
+            
+            await using var browser = await playwright.Chromium.LaunchAsync(browserOptions);
 
             var context = await browser.NewContextAsync(new BrowserNewContextOptions
             {
