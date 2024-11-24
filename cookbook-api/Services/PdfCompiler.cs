@@ -344,7 +344,7 @@ public class PdfCompiler(PdfCompilerConfig config, IFileService fileService)
         {
             container.Table(table =>
             {
-                // Define columns based on detected columns in the markdown table
+                // Define columns based on detected columns in the Markdown table
                 table.ColumnsDefinition(columns =>
                 {
                     // Count number of cells in first row to determine column count
@@ -352,7 +352,7 @@ public class PdfCompiler(PdfCompilerConfig config, IFileService fileService)
                     if (firstRow == null) return;
 
                     var columnCount = firstRow.Count;
-                    for (int i = 0; i < columnCount; i++)
+                    for (var i = 0; i < columnCount; i++)
                     {
                         columns.RelativeColumn();
                     }
@@ -377,7 +377,7 @@ public class PdfCompiler(PdfCompilerConfig config, IFileService fileService)
                                 {
                                     foreach (var block in tableCell)
                                     {
-                                        if (block is ParagraphBlock para && para.Inline != null)
+                                        if (block is ParagraphBlock { Inline: not null } para)
                                         {
                                             text.Span(GetInlineText(para.Inline));
                                         }
@@ -485,7 +485,7 @@ public class PdfCompiler(PdfCompilerConfig config, IFileService fileService)
                         .MinHeight(100)
                         .MaxWidth(targetWidth)
                         .MaxHeight(targetHeight)
-                        .Image(imagePath)
+                        .Image(imagePath!)
                         .FitWidth();
                 }
                 catch
@@ -495,7 +495,7 @@ public class PdfCompiler(PdfCompilerConfig config, IFileService fileService)
                         .AlignCenter()
                         .Padding(10)
                         .MaxWidth(300)
-                        .Image(imagePath)
+                        .Image(imagePath!)
                         .FitWidth();
                 }
 
@@ -506,7 +506,7 @@ public class PdfCompiler(PdfCompilerConfig config, IFileService fileService)
             container
                 .Shrink()
                 .PaddingVertical(2)
-                .Text(text => RenderInlines(text, paragraph.Inline));
+                .Text(textBlock => RenderInlines(textBlock, paragraph.Inline));
         }
 
         private void RenderList(IContainer container, ListBlock list)
@@ -524,10 +524,12 @@ public class PdfCompiler(PdfCompilerConfig config, IFileService fileService)
                         if (item.Descendants<ParagraphBlock>().FirstOrDefault() is not { } paragraph)
                             continue;
 
+                        var index2 = index;
                         column.Item().Row(row =>
                         {
+                            var index1 = index2;
                             row.ConstantItem(20).Text(text =>
-                                text.Span(list.IsOrdered ? $"{index}." : "•"));
+                                text.Span(list.IsOrdered ? $"{index1}." : "•"));
 
                             row.RelativeItem().Text(text =>
                                 RenderInlines(text, paragraph.Inline));

@@ -14,7 +14,7 @@ namespace Cookbook.Factory.Services;
 public class RecipeConfig : IConfig
 {
     public int RecipesToReturnPerRetrieval { get; init; } = 5;
-    public int AcceptableScoreThreshold { get; init; } = 75;
+    public int AcceptableScoreThreshold { get; init; } = 80;
     public int QualityScoreThreshold { get; init; } = 80;
     public int MaxNewRecipeNameAttempts { get; init; } = 5;
     public int MaxParallelTasks { get; init; } = 5;
@@ -141,12 +141,6 @@ public class RecipeService(
             await RankUnrankedRecipesAsync(recipes, query, acceptableScore.Value);
         }
 
-        // Strip out any recipes that are not relevant
-        recipes = recipes
-            .Where(r => !r.Relevancy.ContainsKey(query) || r.Relevancy[query].Score > 0)
-            .OrderByDescending(r => r.Relevancy.TryGetValue(query, out var value) ? value.Score : 0)
-            .ToList();
-
         // Save recipes to the repository
         if (recipes.Count != 0)
         {
@@ -159,7 +153,9 @@ public class RecipeService(
             .ToList();
     }
 
-    private async Task RankUnrankedRecipesAsync(List<Recipe> recipes, string query, int acceptableScore)
+    public async Task<List<Recipe>> RankUnrankedRecipesAsync(IEnumerable<ScrapedRecipe> recipes, string query)
+        => await RankUnrankedRecipesAsync(mapper.Map<List<Recipe>>(recipes), query, config.AcceptableScoreThreshold);
+    private async Task<List<Recipe>> RankUnrankedRecipesAsync(List<Recipe> recipes, string query, int acceptableScore)
     {
         var unrankedRecipes = recipes.Where(r => !r.Relevancy.ContainsKey(query)).ToList();
         if (unrankedRecipes.Count != 0)
@@ -177,6 +173,8 @@ public class RecipeService(
             var score2 = r2.Relevancy.TryGetValue(query, out var value1) ? value1.Score : 0;
             return score2.CompareTo(score1);
         });
+
+        return recipes;
     }
 
     private async Task RankRecipesAsync(List<Recipe> recipes, string query, int? acceptableScore = null)

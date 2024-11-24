@@ -12,16 +12,29 @@ public class RankRecipePrompt : PromptBase
     public override string SystemPrompt
         => """
            You are a specialist in assessing the relevancy of a recipe given a query.
-           Your task is to identify whether the given recipe contains data related to an actual recipe.
-           Your goal is to provide a relevancy score of 0 if it's not a recipe and a score from 1 to 99 on how relevant a recipe is to the given query.
-           The value of 100 is reserved for particular specific queries that are a perfect match with the given recipe.
-           Provide a brief and concise explanation of your decision.
+           Your task is to identify the degree to how relevant is a given recipe against the desired recipe query name.
+           Assign a relevancy score from 0 to 100, where:
+              - 0: The recipe data is for something else.
+              - 1-39: The recipe data is not relevant.
+              - 40-69: Somewhat relevant to the query.
+              - 70-79: This recipe could be an expected result for the query.
+              - 80-89: Relevant.
+              - 90-99: This recipe is expected to be a top search results.
+              - 100: Perfect match, exactly the same.
+           Along with the score, provide a brief and concise justification of your decision.
            """;
 
     public override string Model => LlmModels.Gpt4Omini;
 
     public string GetUserPrompt(Recipe recipe, string? query) =>
-        $"Query: '{query}'\n\nRecipe data:\n{JsonSerializer.Serialize(recipe)}";
+        $"""
+         Query: '{query}'
+
+         Recipe data:
+         ```json
+         {JsonSerializer.Serialize(recipe)}
+         ```
+         """;
 
     public override FunctionDefinition GetFunction() => new()
     {

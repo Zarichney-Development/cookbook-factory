@@ -288,7 +288,10 @@ public class LlmService(OpenAIClient client, IMapper mapper, LlmConfig config) :
 
             try
             {
+                Log.Information("Function arguments: {FunctionArguments}", toolCall.FunctionArguments);
                 using var argumentsJson = JsonDocument.Parse(toolCall.FunctionArguments);
+
+                Log.Information("Deserializing tool call arguments to type {type}", typeof(T).Name);
                 var result = Utils.Deserialize<T>(argumentsJson);
 
                 if (result != null)

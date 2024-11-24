@@ -38,6 +38,7 @@ builder.Configuration
     ;
 
 var logger = new LoggerConfiguration()
+    // .MinimumLevel.Debug()
     .WriteTo.Console()
     .Enrich.FromLogContext();
 
@@ -190,13 +191,11 @@ builder.Services.AddRequestResponseLogger(options =>
 
 var app = builder.Build();
 
-app.UseMiddleware<ErrorHandlingMiddleware>();
-
 app.UseMiddleware<RequestResponseLoggerMiddleware>();
 
-app.UseCors("AllowSpecificOrigin");
+app.UseMiddleware<ErrorHandlingMiddleware>();
 
-app.UseDeveloperExceptionPage();
+app.UseCors("AllowSpecificOrigin");
 
 app
     .UseSwagger(c =>
@@ -214,7 +213,10 @@ app
 app.UseHttpsRedirection();
 app.UseAuthorization();
 
-app.UseApiKeyAuth();
+if (app.Environment.IsProduction())
+{
+    app.UseApiKeyAuth();
+}
 
 app.MapControllers();
 

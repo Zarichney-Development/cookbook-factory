@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using AngleSharp;
@@ -6,6 +7,7 @@ using AngleSharp.Dom;
 using Cookbook.Factory.Config;
 using Cookbook.Factory.Models;
 using Cookbook.Factory.Prompts;
+using Microsoft.Playwright;
 using Serilog;
 using ILogger = Serilog.ILogger;
 
@@ -18,6 +20,12 @@ public class WebscraperConfig : IConfig
     public int MaxParallelSites { get; init; } = 5;
 }
 
+class SiteSelectors
+{
+    public Dictionary<string, Dictionary<string, string>> Sites { get; set; } = new();
+    public Dictionary<string, Dictionary<string, string>> Templates { get; set; } = new();
+}
+
 public class WebScraperService(
     WebscraperConfig config,
     ChooseRecipesPrompt chooseRecipesPrompt,
@@ -28,32 +36,17 @@ public class WebScraperService(
     private readonly ILogger _log = Log.ForContext<WebScraperService>();
 
     private static Dictionary<string, Dictionary<string, string>>? _siteSelectors;
+    private static Dictionary<string, Dictionary<string, string>>? _siteTemplates;
 
     internal async Task<List<ScrapedRecipe>> ScrapeForRecipesAsync(string query, string? targetSite = null)
     {
         // Pulls the list of sites from config with their selectors
-        _siteSelectors ??= await LoadSiteSelectors();
+        await LoadSiteSelectors();
 
-        // Randomize sites to increase diversification over repeated queries
-        _siteSelectors = _siteSelectors.OrderBy(_ => Guid.NewGuid()).ToDictionary(pair => pair.Key, pair => pair.Value);
+        var sitesToProcess = _siteSelectors!
+            .Where(site => string.IsNullOrEmpty(targetSite) || site.Key == targetSite);
 
-        // Filter out sites that are missing required selectors or are not the target site
-        var sitesToProcess = _siteSelectors.Where(site =>
-        {
-            if (string.IsNullOrEmpty(site.Value["base_url"]) || string.IsNullOrEmpty(site.Value["search_page"]))
-            {
-                if (string.IsNullOrEmpty(site.Value["search_page"]))
-                {
-                    _log.Warning("Site {site} is missing the search page URL", site.Key);
-                }
-
-                return false;
-            }
-
-            return string.IsNullOrEmpty(targetSite) || site.Key == targetSite;
-        });
-
-        var allSiteRecipes = new ConcurrentBag<KeyValuePair<string,List<ScrapedRecipe>>>();
+        var allSiteRecipes = new ConcurrentBag<KeyValuePair<string, List<ScrapedRecipe>>>();
 
         await Parallel.ForEachAsync(sitesToProcess,
             new ParallelOptions { MaxDegreeOfParallelism = config.MaxParallelSites },
@@ -64,15 +57,22 @@ public class WebScraperService(
                     // Use the search page of each site to collect urls for recipe pages
                     var recipeUrls = await SearchSiteForRecipeUrls(site.Key, query);
 
-                    // Rank and filter down search results using LLM to return the most relevant URLs in respect to max per site
-                    var relevantUrls = await SelectMostRelevantUrls(site.Key, recipeUrls, query);
-
                     if (recipeUrls.Count > 0)
                     {
-                        // Use the site's selectors to extract the text from the html and return the data
-                        var scrapedRecipes = await ScrapeSiteForRecipesAsync(site.Key, relevantUrls, query);
-                        
-                        allSiteRecipes.Add(new KeyValuePair<string, List<ScrapedRecipe>>(site.Key, scrapedRecipes));
+                        // Rank and filter down search results using LLM to return the most relevant URLs in respect to max per site
+                        var relevantUrls = await SelectMostRelevantUrls(site.Key, recipeUrls, query);
+
+                        if (recipeUrls.Count > 0)
+                        {
+                            // Use the site's selectors to extract the text from the html and return the data
+                            var scrapedRecipes = await ScrapeSiteForRecipesAsync(site.Key, relevantUrls, query);
+
+                            allSiteRecipes.Add(new KeyValuePair<string, List<ScrapedRecipe>>(site.Key, scrapedRecipes));
+                        }
+                    }
+                    else
+                    {
+                        _log.Debug("No recipes found for {query} on site {site}", query, site.Key);
                     }
                 }
                 catch (Exception ex)
@@ -88,21 +88,22 @@ public class WebScraperService(
 
         return allRecipes;
     }
-    
+
     /// <summary>
     /// Flattens the results from each site into ranked single list
     /// </summary>
     /// <param name="allSiteRecipes">The collection of scraped recipe</param>
     /// <returns>A single list, ordered by each site's top choices</returns>
-    private static List<ScrapedRecipe> InterleaveRecipes(ConcurrentBag<KeyValuePair<string, List<ScrapedRecipe>>> allSiteRecipes)
+    private static List<ScrapedRecipe> InterleaveRecipes(
+        ConcurrentBag<KeyValuePair<string, List<ScrapedRecipe>>> allSiteRecipes)
     {
         // Pre-calculate the total capacity needed to avoid resizing
         var totalCapacity = allSiteRecipes.Sum(kvp => kvp.Value.Count);
         var recipeLists = new List<ScrapedRecipe>(totalCapacity);
-    
+
         // Convert ConcurrentBag to array once for better performance
         var allRecipes = allSiteRecipes.Select(kvp => kvp.Value).ToArray();
-    
+
         if (allRecipes.Length == 0)
             return recipeLists;
 
@@ -110,19 +111,19 @@ public class WebScraperService(
         var currentIndices = allRecipes.Length <= 1000
             ? stackalloc int[allRecipes.Length]
             : new int[allRecipes.Length];
-    
+
         // Track remaining items for early termination
         var remainingItems = totalCapacity;
-    
+
         while (remainingItems > 0)
         {
             var addedInRound = false;
-        
+
             for (var siteIndex = 0; siteIndex < allRecipes.Length; siteIndex++)
             {
                 var currentIndex = currentIndices[siteIndex];
                 var recipeList = allRecipes[siteIndex];
-            
+
                 if (currentIndex < recipeList.Count)
                 {
                     recipeLists.Add(recipeList[currentIndex]);
@@ -131,7 +132,7 @@ public class WebScraperService(
                     addedInRound = true;
                 }
             }
-        
+
             // If no items were added in this round, we're done
             if (!addedInRound)
                 break;
@@ -190,36 +191,193 @@ public class WebScraperService(
             siteUrl = $"https://{site}.com";
         }
 
-        var searchUrl = $"{siteUrl}{selectors["search_page"]}{Uri.EscapeDataString(query)}";
+        var searchQuery = selectors["search_page"];
 
+        if (searchQuery.Contains("{query}"))
+        {
+            searchQuery = searchQuery.Replace("{query}", Uri.EscapeDataString(query));
+        }
+        else
+        {
+            searchQuery += Uri.EscapeDataString(query);
+        }
+
+        var searchUrl = $"{siteUrl}{searchQuery}";
+
+        var isStreamSearch = selectors.TryGetValue("stream_search", out var streamSearchValue) &&
+                             streamSearchValue == "true";
+
+        var recipeUrls = isStreamSearch
+            ? await StreamContentForSearchResults(searchUrl, selectors["search_results"])
+            : await ExtractRecipeUrls(searchUrl, selectors);
+
+        if (recipeUrls.Count == 0)
+        {
+            _log.Information("No search results found for '{query}' on site {site}", query, site);
+            return [];
+        }
+
+        _log.Information("Returned {count} search results for recipe '{query}' on site: {site}", recipeUrls.Count,
+            query, site);
+        return recipeUrls;
+    }
+
+    private async Task<List<string>> ExtractRecipeUrls(string url, Dictionary<string, string> selectors)
+    {
         // Extract the html from the search page
-        var html = await SendGetRequestForHtml(searchUrl);
+        var html = await SendGetRequestForHtml(url);
 
         if (string.IsNullOrEmpty(html))
         {
-            _log.Warning("Failed to retrieve HTML content for '{query}' on {site}", query, site);
+            _log.Warning("Failed to retrieve HTML content for URL: {url}", url);
             return [];
         }
 
         var browserContext = BrowsingContext.New(Configuration.Default);
         var htmlDoc = await browserContext.OpenAsync(req => req.Content(html));
 
-        var links = htmlDoc.QuerySelectorAll(selectors["listed_recipe"]);
-        var recipeUrls = links.Select(link => link.GetAttribute("href")).Distinct()
-            .Where(url => !string.IsNullOrEmpty(url)).ToList();
+        var searchResultSelector = selectors["search_results"].Replace("\\\"", "\"");
 
-        if (recipeUrls.Count == 0)
+        var links = htmlDoc.QuerySelectorAll(searchResultSelector);
+        return links.Select(link => link.GetAttribute("href"))
+            .Where(urlAttribute => !string.IsNullOrEmpty(urlAttribute))
+            .Distinct()
+            .ToList()!;
+    }
+
+    private async Task<List<string>> StreamContentForSearchResults(string url, string selector,
+        int maxWaitTimeMs = 50000, int pollIntervalMs = 200)
+    {
+        var startTime = DateTime.UtcNow;
+
+        try
         {
-            _log.Information("No recipes found for '{query}' on site {site}", query, site);
+            using var playwright = await Playwright.CreateAsync();
+            await using var browser = await playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions
+            {
+                Headless = true,
+                Timeout = maxWaitTimeMs,
+                Args =
+                [
+                    "--disable-dev-shm-usage",
+                    "--no-sandbox",
+                    "--disable-setuid-sandbox",
+                    "--disable-gpu",
+                    "--disable-web-security",
+                    "--disable-features=IsolateOrigins,site-per-process"
+                ]
+            });
+
+            var context = await browser.NewContextAsync(new BrowserNewContextOptions
+            {
+                AcceptDownloads = false,
+                BypassCSP = true,
+                JavaScriptEnabled = true,
+                IgnoreHTTPSErrors = true,
+                UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)",
+                ViewportSize = new ViewportSize { Width = 1280, Height = 720 }
+            });
+
+            // Create a page with a shorter navigation timeout
+            var page = await context.NewPageAsync();
+
+            page.Console += (_, msg) => { _log.Debug("Console message: {type} - {text}", msg.Type, msg.Text); };
+
+            try
+            {
+                var response = await page.GotoAsync(url, new PageGotoOptions
+                {
+                    WaitUntil = WaitUntilState.DOMContentLoaded,
+                    Timeout = maxWaitTimeMs
+                });
+
+                if (!response?.Ok ?? false)
+                {
+                    _log.Warning("Failed to load page. Status: {status}", response.Status);
+                    return null!;
+                }
+
+                // Wait for the main content to load
+                // await page.WaitForSelectorAsync("main", new PageWaitForSelectorOptions { Timeout = maxWaitTimeMs });
+
+                // Handle cookie consent banner if present
+                var consentButton = await page.QuerySelectorAsync("button#cookie-consent-accept");
+                if (consentButton != null)
+                {
+                    await consentButton.ClickAsync();
+                    _log.Information("Accepted cookie consent.");
+                }
+
+                // Simulate mouse movement to the center of the page
+                var centerX = (page.ViewportSize?.Width ?? 1280) / 2;
+                var centerY = (page.ViewportSize?.Height ?? 720) / 2;
+                await page.Mouse.MoveAsync(centerX, centerY);
+                _log.Information("Simulated mouse movement to position ({x}, {y})", centerX, centerY);
+
+                // Wait a short moment for initial JavaScript to execute
+                await page.WaitForTimeoutAsync(pollIntervalMs);
+
+                // Now poll for our selector
+                var checkCount = 0;
+                var maxChecks = maxWaitTimeMs / pollIntervalMs;
+
+                while (checkCount < maxChecks)
+                {
+                    try
+                    {
+                        var elements = await page.QuerySelectorAllAsync(selector);
+                        var recipeUrls = new List<string>();
+
+                        foreach (var element in elements)
+                        {
+                            var href = await element.GetAttributeAsync("href");
+                            if (!string.IsNullOrEmpty(href))
+                            {
+                                recipeUrls.Add(href);
+                            }
+                        }
+
+                        if (recipeUrls.Count > 0)
+                        {
+                            var timeElapsed = DateTime.UtcNow - startTime;
+                            _log.Information("Found dynamic content after {elapsed}ms", timeElapsed.TotalMilliseconds);
+                            return recipeUrls.Distinct().ToList();
+                        }
+
+                        // Wait before next check
+                        await page.WaitForTimeoutAsync(pollIntervalMs);
+                        checkCount++;
+
+                        _log.Debug("Check {count} for dynamic content", checkCount);
+                    }
+                    catch (Exception ex) when (ex is PlaywrightException or TimeoutException)
+                    {
+                        _log.Debug(ex, "Attempt {count} failed, continuing to next check", checkCount);
+                    }
+                }
+
+                _log.Information("No dynamic content found after {checks} checks", checkCount);
+                return [];
+            }
+            catch (Exception ex) when (ex is PlaywrightException or TimeoutException)
+            {
+                _log.Warning(ex, "Navigation or content loading failed for URL: {url}", url);
+                return [];
+            }
+            finally
+            {
+                await page.CloseAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            _log.Error(ex, "Critical error occurred while checking for dynamic content");
             return [];
         }
-
-        _log.Information("Returned {count} search results for recipe '{query}' on site: {site}", recipeUrls.Count,
-            query, site);
-        return recipeUrls!;
     }
-    
-    private async Task<List<ScrapedRecipe>> ScrapeSiteForRecipesAsync(string site, List<string> recipeUrls, string? query)
+
+    private async Task<List<ScrapedRecipe>> ScrapeSiteForRecipesAsync(string site, List<string> recipeUrls,
+        string? query)
     {
         var scrapedRecipes = new ConcurrentBag<ScrapedRecipe>();
         var amountToScrape = Math.Min(recipeUrls.Count, config.MaxNumRecipesPerSite);
@@ -267,6 +425,18 @@ public class WebScraperService(
         var browserContext = BrowsingContext.New(Configuration.Default);
         var htmlDoc = await browserContext.OpenAsync(req => req.Content(html));
 
+        string? imageUrl = null;
+        try
+        {
+            imageUrl = ExtractText(htmlDoc, selectors["image"], "data-lazy-src") ??
+                       ExtractText(htmlDoc, selectors["image"], "src") ??
+                       ExtractText(htmlDoc, selectors["image"], "srcset")?.Split(" ")[0];
+        }
+        catch (Exception)
+        {
+            _log.Debug("No image found for {url}", url);
+        }
+
         return new ScrapedRecipe
         {
             Id = GenerateUrlFingerprint(url),
@@ -282,8 +452,7 @@ public class WebScraperService(
             CookTime = ExtractText(htmlDoc, selectors["cook_time"]),
             TotalTime = ExtractText(htmlDoc, selectors["total_time"]),
             Notes = ExtractText(htmlDoc, selectors["notes"]),
-            ImageUrl = ExtractText(htmlDoc, selectors["image"], "data-lazy-src") ??
-                       ExtractText(htmlDoc, selectors["image"], "src"),
+            ImageUrl = imageUrl,
         };
     }
 
@@ -322,15 +491,34 @@ public class WebScraperService(
         return null;
     }
 
-    private async Task<string> SendGetRequestForHtml(string url)
+    private async Task<string> SendGetRequestForHtml(string url, CancellationToken ctsToken = default)
     {
         try
         {
             _log.Information("Running GET request for URL: {url}", url);
-            var client = new HttpClient();
-            var response = await client.GetAsync(url);
+
+            // Create an HttpClientHandler with automatic decompression
+            var handler = new HttpClientHandler
+            {
+                AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate
+            };
+
+            using var client = new HttpClient(handler);
+
+            // Create the request message
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
+
+            // Add headers to mimic a real browser
+            request.Headers.Add("User-Agent",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/98.0.4758.102 Safari/537.36");
+            request.Headers.Add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
+            request.Headers.Add("Accept-Language", "en-US,en;q=0.5");
+            // Note: AutomaticDecompression handles Accept-Encoding
+
+            // Send the request
+            var response = await client.SendAsync(request, ctsToken);
             response.EnsureSuccessStatusCode();
-            return await response.Content.ReadAsStringAsync();
+            return await response.Content.ReadAsStringAsync(ctsToken);
         }
         catch (HttpRequestException e)
         {
@@ -354,6 +542,40 @@ public class WebScraperService(
         return results.Count == 0 ? null : results;
     }
 
-    private async Task<Dictionary<string, Dictionary<string, string>>> LoadSiteSelectors()
-        => await fileService.ReadFromFile<Dictionary<string, Dictionary<string, string>>>("Config", "site_selectors");
+    private async Task LoadSiteSelectors()
+    {
+        if (_siteSelectors != null && _siteTemplates != null)
+            return;
+
+        var selectorsData = await fileService.ReadFromFile<SiteSelectors>("Config", "site_selectors");
+        _siteTemplates = selectorsData.Templates;
+        _siteSelectors = new Dictionary<string, Dictionary<string, string>>();
+
+        // Process sites and apply templates
+        foreach (var (siteKey, siteConfig) in selectorsData.Sites)
+        {
+            if (siteConfig.TryGetValue("use_template", out var templateName))
+            {
+                if (!_siteTemplates.TryGetValue(templateName, out var templateConfig))
+                {
+                    throw new Exception($"Template {templateName} not found for site {siteKey}");
+                }
+
+                // Merge template and site config
+                var mergedConfig = new Dictionary<string, string>(templateConfig);
+
+                // Overwrite with site-specific values
+                foreach (var kvp in siteConfig)
+                {
+                    mergedConfig[kvp.Key] = kvp.Value;
+                }
+
+                _siteSelectors[siteKey] = mergedConfig;
+            }
+            else
+            {
+                _siteSelectors[siteKey] = siteConfig;
+            }
+        }
+    }
 }

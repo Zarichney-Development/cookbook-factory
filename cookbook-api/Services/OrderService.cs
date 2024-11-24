@@ -67,7 +67,16 @@ public class OrderService(
     }
 
     public async Task<CookbookOrder> GetOrder(string orderId)
-        => await fileService.ReadFromFile<CookbookOrder>(Path.Combine(config.OutputDirectory, orderId), "Order");
+    {
+        var order = await fileService.ReadFromFile<CookbookOrder>(Path.Combine(config.OutputDirectory, orderId), "Order");
+
+        if (order == null)
+        {
+            throw new KeyNotFoundException($"No order found using ID: {orderId}");
+        }
+
+        return order;
+    }
 
     public async Task<CookbookOrder> GenerateCookbookAsync(CookbookOrder order, bool isSample = false)
     {
@@ -287,13 +296,13 @@ public class OrderService(
             { "current_year", DateTime.Now.Year },
             { "unsubscribe_link", "https://zarichney.com/unsubscribe" },
         };
+        
+        var order = await GetOrder(orderId);
+
+        _log.Information("Retrieved order {OrderId} for email", orderId);
 
         await _retryPolicy.ExecuteAsync(async () =>
         {
-            var order = await GetOrder(orderId);
-
-            _log.Information("Retrieved order {OrderId} for email", orderId);
-
             var pdf = await fileService.ReadFromFile<byte[]>(
                 Path.Combine(config.OutputDirectory, orderId),
                 "Cookbook",

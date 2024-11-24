@@ -15,6 +15,7 @@
     <ItemGroup>
         <PackageReference Include="Amazon.Extensions.Configuration.SystemsManager" Version="6.2.2" />
         <PackageReference Include="AngleSharp" Version="1.1.2" />
+        <PackageReference Include="AngleSharp.Js" Version="0.15.0" />
         <PackageReference Include="AutoMapper" Version="13.0.1" />
         <PackageReference Include="AWSSDK.SimpleSystemsManagement" Version="3.7.402.26" />
         <PackageReference Include="Azure.Identity" Version="1.12.0" />
@@ -22,6 +23,7 @@
         <PackageReference Include="Markdig" Version="0.37.0" />
         <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="8.0.10" />
         <PackageReference Include="Microsoft.Graph" Version="5.56.0" />
+        <PackageReference Include="Microsoft.Playwright" Version="1.49.0" />
         <PackageReference Include="OpenAI" Version="2.0.0" />
         <PackageReference Include="Polly" Version="8.4.1" />
         <PackageReference Include="RestSharp" Version="112.1.0" />
@@ -31,7 +33,7 @@
         <PackageReference Include="Serilog.Sinks.File" Version="6.0.0" />
         <PackageReference Include="Serilog.Sinks.Seq" Version="8.0.0" />
         <PackageReference Include="SixLabors.ImageSharp" Version="3.1.5" />
-        <PackageReference Include="Swashbuckle.AspNetCore" Version="6.4.0"/>
+        <PackageReference Include="Swashbuckle.AspNetCore" Version="6.4.0" />
         <PackageReference Include="System.Drawing.Common" Version="8.0.7" />
         <PackageReference Include="System.Text.Encoding.CodePages" Version="8.0.0" />
         <PackageReference Include="SkiaSharp" Version="2.88.8" />
@@ -44,6 +46,10 @@
         <Content Include="Config/site_selectors.json" CopyToOutputDirectory="PreserveNewest" />
         <Content Include="EmailTemplates/**" CopyToOutputDirectory="PreserveNewest" />
         <None Update="AwsMaintenance.md" CopyToOutputDirectory="PreserveNewest" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <Folder Include="test_results\" />
     </ItemGroup>
     
 </Project>
