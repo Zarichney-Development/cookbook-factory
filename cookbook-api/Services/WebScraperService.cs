@@ -18,6 +18,8 @@ public class WebscraperConfig : IConfig
     public int MaxNumRecipesPerSite { get; init; } = 3;
     public int MaxParallelTasks { get; init; } = 5;
     public int MaxParallelSites { get; init; } = 5;
+    public int MaxWaitTimeMs { get; init; } = 10000;
+    public int PollIntervalMs { get; init; } = 200;
 }
 
 class SiteSelectors
@@ -247,9 +249,14 @@ public class WebScraperService(
     }
 
     private async Task<List<string>> StreamContentForSearchResults(string url, string selector,
-        int maxWaitTimeMs = 50000, int pollIntervalMs = 200)
+        int? maxWaitTimeMs = null, int? pollIntervalMs = null)
     {
+        var timeout = maxWaitTimeMs ?? config.MaxWaitTimeMs;
+        var frequency = pollIntervalMs ?? config.PollIntervalMs;
         var startTime = DateTime.UtcNow;
+        IBrowser? browser = null;
+        IPage? page = null;
+        IBrowserContext? context = null;
 
         try
         {
@@ -258,7 +265,7 @@ public class WebScraperService(
             var browserOptions = new BrowserTypeLaunchOptions
             {
                 Headless = true,
-                Timeout = maxWaitTimeMs,
+                Timeout = timeout,
                 Args =
                 [
                     "--disable-dev-shm-usage",
@@ -266,8 +273,16 @@ public class WebScraperService(
                     "--disable-setuid-sandbox",
                     "--disable-gpu",
                     "--disable-web-security",
-                    "--disable-features=IsolateOrigins,site-per-process"
-                ]
+                    "--disable-features=IsolateOrigins,site-per-process",
+                    // Add memory limits
+                    "--js-flags=--max-old-space-size=256",
+                    "--memory-pressure-off",
+                    "--disable-dev-tools"
+                ],
+                // Set explicit browser memory limits
+                HandleSIGINT = true,
+                HandleSIGTERM = true,
+                HandleSIGHUP = true
             };
 
             if (env.IsProduction())
@@ -275,10 +290,10 @@ public class WebScraperService(
                 browserOptions.Channel = "chrome";
                 browserOptions.ExecutablePath = "/usr/bin/google-chrome";
             }
-            
-            await using var browser = await playwright.Chromium.LaunchAsync(browserOptions);
 
-            var context = await browser.NewContextAsync(new BrowserNewContextOptions
+            browser = await playwright.Chromium.LaunchAsync(browserOptions);
+
+            context = await browser.NewContextAsync(new BrowserNewContextOptions
             {
                 AcceptDownloads = false,
                 BypassCSP = true,
@@ -288,101 +303,116 @@ public class WebScraperService(
                 ViewportSize = new ViewportSize { Width = 1280, Height = 720 }
             });
 
-            // Create a page with a shorter navigation timeout
-            var page = await context.NewPageAsync();
+            context.SetDefaultTimeout(timeout);
+            context.SetDefaultNavigationTimeout(timeout);
+
+            page = await context.NewPageAsync();
 
             page.Console += (_, msg) => { _log.Debug("Console message: {type} - {text}", msg.Type, msg.Text); };
+            page.PageError += (_, error) => { _log.Warning("Page error: {error}", error); };
 
-            try
+            var response = await page.GotoAsync(url, new PageGotoOptions
             {
-                var response = await page.GotoAsync(url, new PageGotoOptions
+                WaitUntil = WaitUntilState.DOMContentLoaded,
+                Timeout = timeout
+            });
+
+            if (!response?.Ok ?? false)
+            {
+                _log.Warning("Failed to load page. Status: {status}", response.Status);
+                return null!;
+            }
+
+            // Wait for the main content to load
+            // await page.WaitForSelectorAsync("main", new PageWaitForSelectorOptions { Timeout = maxWaitTimeMs });
+
+            // Handle cookie consent banner if present
+            var consentButton = await page.QuerySelectorAsync("button#cookie-consent-accept");
+            if (consentButton != null)
+            {
+                await consentButton.ClickAsync();
+                _log.Information("Accepted cookie consent.");
+            }
+
+            // Simulate mouse movement to the center of the page
+            var centerX = (page.ViewportSize?.Width ?? 1280) / 2;
+            var centerY = (page.ViewportSize?.Height ?? 720) / 2;
+            await page.Mouse.MoveAsync(centerX, centerY);
+            _log.Information("Simulated mouse movement to position ({x}, {y})", centerX, centerY);
+
+            // Wait a short moment for initial JavaScript to execute
+            await page.WaitForTimeoutAsync(frequency);
+
+            // Now poll for our selector
+            var checkCount = 0;
+            var maxChecks = timeout / frequency;
+
+            while (checkCount < maxChecks)
+            {
+                try
                 {
-                    WaitUntil = WaitUntilState.DOMContentLoaded,
-                    Timeout = maxWaitTimeMs
-                });
+                    var elements = await page.QuerySelectorAllAsync(selector);
+                    var recipeUrls = new List<string>();
 
-                if (!response?.Ok ?? false)
-                {
-                    _log.Warning("Failed to load page. Status: {status}", response.Status);
-                    return null!;
-                }
-
-                // Wait for the main content to load
-                // await page.WaitForSelectorAsync("main", new PageWaitForSelectorOptions { Timeout = maxWaitTimeMs });
-
-                // Handle cookie consent banner if present
-                var consentButton = await page.QuerySelectorAsync("button#cookie-consent-accept");
-                if (consentButton != null)
-                {
-                    await consentButton.ClickAsync();
-                    _log.Information("Accepted cookie consent.");
-                }
-
-                // Simulate mouse movement to the center of the page
-                var centerX = (page.ViewportSize?.Width ?? 1280) / 2;
-                var centerY = (page.ViewportSize?.Height ?? 720) / 2;
-                await page.Mouse.MoveAsync(centerX, centerY);
-                _log.Information("Simulated mouse movement to position ({x}, {y})", centerX, centerY);
-
-                // Wait a short moment for initial JavaScript to execute
-                await page.WaitForTimeoutAsync(pollIntervalMs);
-
-                // Now poll for our selector
-                var checkCount = 0;
-                var maxChecks = maxWaitTimeMs / pollIntervalMs;
-
-                while (checkCount < maxChecks)
-                {
-                    try
+                    foreach (var element in elements)
                     {
-                        var elements = await page.QuerySelectorAllAsync(selector);
-                        var recipeUrls = new List<string>();
-
-                        foreach (var element in elements)
+                        var href = await element.GetAttributeAsync("href");
+                        if (!string.IsNullOrEmpty(href))
                         {
-                            var href = await element.GetAttributeAsync("href");
-                            if (!string.IsNullOrEmpty(href))
-                            {
-                                recipeUrls.Add(href);
-                            }
+                            recipeUrls.Add(href);
                         }
-
-                        if (recipeUrls.Count > 0)
-                        {
-                            var timeElapsed = DateTime.UtcNow - startTime;
-                            _log.Information("Found dynamic content after {elapsed}ms", timeElapsed.TotalMilliseconds);
-                            return recipeUrls.Distinct().ToList();
-                        }
-
-                        // Wait before next check
-                        await page.WaitForTimeoutAsync(pollIntervalMs);
-                        checkCount++;
-
-                        _log.Debug("Check {count} for dynamic content", checkCount);
                     }
-                    catch (Exception ex) when (ex is PlaywrightException or TimeoutException)
+
+                    if (recipeUrls.Count > 0)
                     {
-                        _log.Debug(ex, "Attempt {count} failed, continuing to next check", checkCount);
+                        var timeElapsed = DateTime.UtcNow - startTime;
+                        _log.Information("Found dynamic content after {elapsed}ms", timeElapsed.TotalMilliseconds);
+                        return recipeUrls.Distinct().ToList();
                     }
-                }
 
-                _log.Information("No dynamic content found after {checks} checks", checkCount);
-                return [];
+                    // Wait before next check
+                    await page.WaitForTimeoutAsync(frequency);
+                    checkCount++;
+
+                    _log.Debug("Check {count} for dynamic content", checkCount);
+                }
+                catch (Exception ex) when (ex is PlaywrightException or TimeoutException)
+                {
+                    _log.Debug(ex, "Attempt {count} failed, continuing to next check", checkCount);
+                }
             }
-            catch (Exception ex) when (ex is PlaywrightException or TimeoutException)
-            {
-                _log.Warning(ex, "Navigation or content loading failed for URL: {url}", url);
-                return [];
-            }
-            finally
-            {
-                await page.CloseAsync();
-            }
+
+            _log.Information("No dynamic content found after {checks} checks", checkCount);
+            return [];
         }
         catch (Exception ex)
         {
             _log.Error(ex, "Critical error occurred while checking for dynamic content");
             return [];
+        }
+        finally
+        {
+            try
+            {
+                if (page != null)
+                {
+                    await page.CloseAsync();
+                }
+
+                if (context != null)
+                {
+                    await context.CloseAsync();
+                }
+
+                if (browser != null)
+                {
+                    await browser.CloseAsync();
+                }
+            }
+            catch (Exception ex)
+            {
+                _log.Error(ex, "Error during cleanup");
+            }
         }
     }
 
