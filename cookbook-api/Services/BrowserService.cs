@@ -67,10 +67,9 @@ public class BrowserService : IBrowserService, IAsyncDisposable
             "--disable-gpu-compositing",
             "--disable-accelerated-2d-canvas",
             "--disable-accelerated-video-decode",
-            "--disable-software-rasterizer",
             "--mute-audio",
             "--disable-logging",
-            "--js-flags=--max-old-space-size=128"
+            "--js-flags=--max-old-space-size=512"
         };
 
         return args.ToArray();

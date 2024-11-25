@@ -18,7 +18,7 @@ public class WebscraperConfig : IConfig
     public int MaxParallelTasks { get; init; } = 5;
     public int MaxParallelSites { get; init; } = 5;
     public int MaxWaitTimeMs { get; init; } = 10000;
-    public int MaxParallelPages { get; init; } = 1;
+    public int MaxParallelPages { get; init; } = 2;
 }
 
 public class WebScraperService(
