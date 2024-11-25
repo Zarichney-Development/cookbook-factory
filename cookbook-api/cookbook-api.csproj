@@ -45,6 +45,9 @@
         <Content Include="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
         <Content Include="Config/site_selectors.json" CopyToOutputDirectory="PreserveNewest" />
         <Content Include="EmailTemplates/**" CopyToOutputDirectory="PreserveNewest" />
+        <Content Include="cleanup-playwright.sh" CopyToOutputDirectory="PreserveNewest" />
+        <Content Include="start-cookbook.sh" CopyToOutputDirectory="PreserveNewest" />
+        <Content Include="cookbook-api.service" CopyToOutputDirectory="PreserveNewest" />
         <None Update="AwsMaintenance.md" CopyToOutputDirectory="PreserveNewest" />
     </ItemGroup>
 

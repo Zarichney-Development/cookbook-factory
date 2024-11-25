@@ -1,0 +1,26 @@
+[Unit]
+Description=Cookbook API Service
+After=network.target
+
+[Service]
+Type=simple
+User=ec2-user
+WorkingDirectory=/opt/cookbook-api
+ExecStart=/opt/cookbook-api/start-cookbook.sh
+Restart=on-failure
+RestartSec=5s
+Environment=ASPNETCORE_ENVIRONMENT=Production
+
+# Adjusted resource limits for t2.micro
+CPUQuota=80%
+MemoryHigh=512M
+MemoryMax=768M
+TasksMax=100
+LimitNPROC=100
+LimitNOFILE=4096
+
+# Run cleanup script as root on stop
+ExecStopPost=/bin/sh -c 'sudo /opt/cookbook-api/cleanup-playwright.sh'
+
+[Install]
+WantedBy=multi-user.target

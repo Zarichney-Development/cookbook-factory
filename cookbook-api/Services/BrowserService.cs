@@ -50,40 +50,34 @@ public class BrowserService : IBrowserService, IAsyncDisposable
         {
             "--no-sandbox",
             "--disable-setuid-sandbox",
-            "--disable-dev-shm-usage",
             "--disable-gpu",
-            // "--single-process",
-            // "--renderer-process-limit=1",
-            "--js-flags=--max-old-space-size=256",
             "--disable-extensions",
             "--disable-component-update",
             "--disable-background-networking",
-            "--disable-client-side-phishing-detection",
             "--disable-default-apps",
             "--disable-sync",
             "--disable-translate",
-            "--safebrowsing-disable-auto-update",
-            "--disable-breakpad",
             "--disable-notifications",
             "--disable-background-timer-throttling",
-            "--disable-canvas-aa",
-            "--disable-2d-canvas-clip-aa",
-            "--disable-gl-drawing-for-tests",
-            "--num-raster-threads=1",
-            "--disable-accelerated-2d-canvas",
-            "--disable-accelerated-jpeg-decoding",
-            "--disable-accelerated-mjpeg-decode",
-            "--disable-accelerated-video-decode",
+            "--disable-renderer-backgrounding",
+            "--disable-backgrounding-occluded-windows",
+            "--disable-breakpad",
+            "--disable-client-side-phishing-detection",
+            "--disable-ipc-flooding-protection",
             "--disable-gpu-compositing",
-            "--disable-logging",
+            "--disable-accelerated-2d-canvas",
+            "--disable-accelerated-video-decode",
+            "--disable-software-rasterizer",
             "--mute-audio",
-            "--deterministic-fetch"
+            "--disable-logging",
+            "--js-flags=--max-old-space-size=128"
         };
 
         return args.ToArray();
     }
 
-    public async Task<List<string>> GetContentAsync(string url, string selector, CancellationToken cancellationToken = default)
+    public async Task<List<string>> GetContentAsync(string url, string selector,
+        CancellationToken cancellationToken = default)
     {
         await _semaphore.WaitAsync(cancellationToken);
 
