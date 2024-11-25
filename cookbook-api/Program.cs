@@ -40,7 +40,9 @@ builder.Configuration
 var logger = new LoggerConfiguration()
     // .MinimumLevel.Debug()
     .WriteTo.Console()
-    .Enrich.FromLogContext();
+    .Enrich.FromLogContext()
+    .Filter.ByIncludingOnly(logEvent => logEvent.Properties.ContainsKey("SourceContext") &&
+                                        logEvent.Properties["SourceContext"].ToString().StartsWith("\"Cookbook"));
 
 var seqUrl = builder.Configuration["LoggingConfig:SeqUrl"];
 if (!string.IsNullOrEmpty(seqUrl) && Uri.IsWellFormedUriString(seqUrl, UriKind.Absolute))
@@ -94,6 +96,7 @@ builder.Services.AddSingleton<IFileService, FileService>();
 builder.Services.AddSingleton<IEmailService, EmailService>();
 builder.Services.AddSingleton<ITemplateService, TemplateService>();
 builder.Services.AddSingleton<IBackgroundTaskQueue>(_ => new BackgroundTaskQueue(100));
+builder.Services.AddSingleton<IBrowserService, BrowserService>();
 builder.Services.AddHostedService<BackgroundTaskService>();
 
 builder.Services.AddTransient<RecipeService>();

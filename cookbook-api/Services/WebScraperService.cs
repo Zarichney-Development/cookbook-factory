@@ -7,7 +7,6 @@ using AngleSharp.Dom;
 using Cookbook.Factory.Config;
 using Cookbook.Factory.Models;
 using Cookbook.Factory.Prompts;
-using Microsoft.Playwright;
 using Serilog;
 using ILogger = Serilog.ILogger;
 
@@ -19,21 +18,15 @@ public class WebscraperConfig : IConfig
     public int MaxParallelTasks { get; init; } = 5;
     public int MaxParallelSites { get; init; } = 5;
     public int MaxWaitTimeMs { get; init; } = 10000;
-    public int PollIntervalMs { get; init; } = 200;
-}
-
-class SiteSelectors
-{
-    public Dictionary<string, Dictionary<string, string>> Sites { get; set; } = new();
-    public Dictionary<string, Dictionary<string, string>> Templates { get; set; } = new();
+    public int MaxParallelPages { get; init; } = 1;
 }
 
 public class WebScraperService(
     WebscraperConfig config,
-    IWebHostEnvironment env,
     ChooseRecipesPrompt chooseRecipesPrompt,
     ILlmService llmService,
-    IFileService fileService
+    IFileService fileService,
+    IBrowserService browserService
 )
 {
     private readonly ILogger _log = Log.ForContext<WebScraperService>();
@@ -65,7 +58,7 @@ public class WebScraperService(
                         // Rank and filter down search results using LLM to return the most relevant URLs in respect to max per site
                         var relevantUrls = await SelectMostRelevantUrls(site.Key, recipeUrls, query);
 
-                        if (recipeUrls.Count > 0)
+                        if (relevantUrls.Count > 0)
                         {
                             // Use the site's selectors to extract the text from the html and return the data
                             var scrapedRecipes = await ScrapeSiteForRecipesAsync(site.Key, relevantUrls, query);
@@ -187,12 +180,7 @@ public class WebScraperService(
     private async Task<List<string>> SearchSiteForRecipeUrls(string site, string query)
     {
         var selectors = _siteSelectors![site];
-        var siteUrl = selectors["base_url"];
-
-        if (string.IsNullOrEmpty(siteUrl))
-        {
-            siteUrl = $"https://{site}.com";
-        }
+        var siteUrl = selectors.GetValueOrDefault("base_url", $"https://{site}.com");
 
         var searchQuery = selectors["search_page"];
 
@@ -211,7 +199,7 @@ public class WebScraperService(
                              streamSearchValue == "true";
 
         var recipeUrls = isStreamSearch
-            ? await StreamContentForSearchResults(searchUrl, selectors["search_results"])
+            ? await browserService.GetContentAsync(searchUrl, selectors["search_results"])
             : await ExtractRecipeUrls(searchUrl, selectors);
 
         if (recipeUrls.Count == 0)
@@ -246,174 +234,6 @@ public class WebScraperService(
             .Where(urlAttribute => !string.IsNullOrEmpty(urlAttribute))
             .Distinct()
             .ToList()!;
-    }
-
-    private async Task<List<string>> StreamContentForSearchResults(string url, string selector,
-        int? maxWaitTimeMs = null, int? pollIntervalMs = null)
-    {
-        var timeout = maxWaitTimeMs ?? config.MaxWaitTimeMs;
-        var frequency = pollIntervalMs ?? config.PollIntervalMs;
-        var startTime = DateTime.UtcNow;
-        IBrowser? browser = null;
-        IPage? page = null;
-        IBrowserContext? context = null;
-
-        try
-        {
-            using var playwright = await Playwright.CreateAsync();
-
-            var browserOptions = new BrowserTypeLaunchOptions
-            {
-                Headless = true,
-                Timeout = timeout,
-                Args =
-                [
-                    "--disable-dev-shm-usage",
-                    "--no-sandbox",
-                    "--disable-setuid-sandbox",
-                    "--disable-gpu",
-                    "--disable-web-security",
-                    "--disable-features=IsolateOrigins,site-per-process",
-                    // Add memory limits
-                    "--js-flags=--max-old-space-size=256",
-                    "--memory-pressure-off",
-                    "--disable-dev-tools"
-                ],
-                // Set explicit browser memory limits
-                HandleSIGINT = true,
-                HandleSIGTERM = true,
-                HandleSIGHUP = true
-            };
-
-            if (env.IsProduction())
-            {
-                browserOptions.Channel = "chrome";
-                browserOptions.ExecutablePath = "/usr/bin/google-chrome";
-            }
-
-            browser = await playwright.Chromium.LaunchAsync(browserOptions);
-
-            context = await browser.NewContextAsync(new BrowserNewContextOptions
-            {
-                AcceptDownloads = false,
-                BypassCSP = true,
-                JavaScriptEnabled = true,
-                IgnoreHTTPSErrors = true,
-                UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)",
-                ViewportSize = new ViewportSize { Width = 1280, Height = 720 }
-            });
-
-            context.SetDefaultTimeout(timeout);
-            context.SetDefaultNavigationTimeout(timeout);
-
-            page = await context.NewPageAsync();
-
-            page.Console += (_, msg) => { _log.Debug("Console message: {type} - {text}", msg.Type, msg.Text); };
-            page.PageError += (_, error) => { _log.Warning("Page error: {error}", error); };
-
-            var response = await page.GotoAsync(url, new PageGotoOptions
-            {
-                WaitUntil = WaitUntilState.DOMContentLoaded,
-                Timeout = timeout
-            });
-
-            if (!response?.Ok ?? false)
-            {
-                _log.Warning("Failed to load page. Status: {status}", response.Status);
-                return null!;
-            }
-
-            // Wait for the main content to load
-            // await page.WaitForSelectorAsync("main", new PageWaitForSelectorOptions { Timeout = maxWaitTimeMs });
-
-            // Handle cookie consent banner if present
-            var consentButton = await page.QuerySelectorAsync("button#cookie-consent-accept");
-            if (consentButton != null)
-            {
-                await consentButton.ClickAsync();
-                _log.Information("Accepted cookie consent.");
-            }
-
-            // Simulate mouse movement to the center of the page
-            var centerX = (page.ViewportSize?.Width ?? 1280) / 2;
-            var centerY = (page.ViewportSize?.Height ?? 720) / 2;
-            await page.Mouse.MoveAsync(centerX, centerY);
-            _log.Information("Simulated mouse movement to position ({x}, {y})", centerX, centerY);
-
-            // Wait a short moment for initial JavaScript to execute
-            await page.WaitForTimeoutAsync(frequency);
-
-            // Now poll for our selector
-            var checkCount = 0;
-            var maxChecks = timeout / frequency;
-
-            while (checkCount < maxChecks)
-            {
-                try
-                {
-                    var elements = await page.QuerySelectorAllAsync(selector);
-                    var recipeUrls = new List<string>();
-
-                    foreach (var element in elements)
-                    {
-                        var href = await element.GetAttributeAsync("href");
-                        if (!string.IsNullOrEmpty(href))
-                        {
-                            recipeUrls.Add(href);
-                        }
-                    }
-
-                    if (recipeUrls.Count > 0)
-                    {
-                        var timeElapsed = DateTime.UtcNow - startTime;
-                        _log.Information("Found dynamic content after {elapsed}ms", timeElapsed.TotalMilliseconds);
-                        return recipeUrls.Distinct().ToList();
-                    }
-
-                    // Wait before next check
-                    await page.WaitForTimeoutAsync(frequency);
-                    checkCount++;
-
-                    _log.Debug("Check {count} for dynamic content", checkCount);
-                }
-                catch (Exception ex) when (ex is PlaywrightException or TimeoutException)
-                {
-                    _log.Debug(ex, "Attempt {count} failed, continuing to next check", checkCount);
-                }
-            }
-
-            _log.Information("No dynamic content found after {checks} checks", checkCount);
-            return [];
-        }
-        catch (Exception ex)
-        {
-            _log.Error(ex, "Critical error occurred while checking for dynamic content");
-            return [];
-        }
-        finally
-        {
-            try
-            {
-                if (page != null)
-                {
-                    await page.CloseAsync();
-                }
-
-                if (context != null)
-                {
-                    await context.CloseAsync();
-                }
-
-                if (browser != null)
-                {
-                    await browser.CloseAsync();
-                }
-            }
-            catch (Exception ex)
-            {
-                _log.Error(ex, "Error during cleanup");
-            }
-        }
     }
 
     private async Task<List<ScrapedRecipe>> ScrapeSiteForRecipesAsync(string site, List<string> recipeUrls,
@@ -618,4 +438,10 @@ public class WebScraperService(
             }
         }
     }
+}
+
+class SiteSelectors
+{
+    public Dictionary<string, Dictionary<string, string>> Sites { get; set; } = new();
+    public Dictionary<string, Dictionary<string, string>> Templates { get; set; } = new();
 }
