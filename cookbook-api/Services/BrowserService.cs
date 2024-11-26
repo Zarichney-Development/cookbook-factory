@@ -14,40 +14,26 @@ public class BrowserService : IBrowserService, IAsyncDisposable
     private readonly ILogger _log = Log.ForContext<BrowserService>();
     private readonly SemaphoreSlim _semaphore;
     private readonly WebscraperConfig _config;
-    private readonly IBrowser _browser;
-    private readonly IPlaywright _playwright;
+    private readonly IBrowser? _browser;
+    private readonly IPlaywright? _playwright;
     private bool _disposed;
 
-    public BrowserService(WebscraperConfig config, IWebHostEnvironment env)
+    private readonly BrowserNewContextOptions _contextConfig = new()
     {
-        _config = config;
-        _semaphore = new SemaphoreSlim(config.MaxParallelPages, config.MaxParallelPages);
+        AcceptDownloads = false,
+        BypassCSP = true,
+        JavaScriptEnabled = true,
+        IgnoreHTTPSErrors = true,
+        UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)",
+        ViewportSize = new ViewportSize { Width = 1280, Height = 720 }
+    };
 
-        _playwright = Playwright.CreateAsync().GetAwaiter().GetResult();
-
-        var browserOptions = new BrowserTypeLaunchOptions
-        {
-            Headless = true,
-            Timeout = config.MaxWaitTimeMs,
-            Args = GetBrowserArgs(),
-            HandleSIGINT = true,
-            HandleSIGTERM = true,
-            HandleSIGHUP = true
-        };
-
-        if (env.IsProduction())
-        {
-            browserOptions.Channel = "chrome";
-            browserOptions.ExecutablePath = "/usr/bin/google-chrome";
-        }
-
-        _browser = _playwright.Chromium.LaunchAsync(browserOptions).GetAwaiter().GetResult();
-    }
-
-    private static string[] GetBrowserArgs()
+    private readonly BrowserTypeLaunchOptions _browserOptions = new()
     {
-        var args = new List<string>
-        {
+        Headless = true,
+        Timeout = 10000,
+        Args =
+        [
             "--no-sandbox",
             "--disable-setuid-sandbox",
             "--disable-gpu",
@@ -70,36 +56,40 @@ public class BrowserService : IBrowserService, IAsyncDisposable
             "--mute-audio",
             "--disable-logging",
             "--js-flags=--max-old-space-size=512"
-        };
+        ]
+    };
 
-        return args.ToArray();
+    public BrowserService(WebscraperConfig config, IWebHostEnvironment env)
+    {
+        _config = config;
+        _semaphore = new SemaphoreSlim(config.MaxParallelPages, config.MaxParallelPages);
+
+        if (env.IsProduction())
+        {
+            _browserOptions.Channel = "chrome";
+            _browserOptions.ExecutablePath = "/usr/bin/google-chrome";
+        }
+
+        _playwright = Playwright.CreateAsync().GetAwaiter().GetResult();
+        _browser = _playwright.Chromium.LaunchAsync(_browserOptions).GetAwaiter().GetResult();
+        _browser.Disconnected += Browser_Disconnect;
     }
 
     public async Task<List<string>> GetContentAsync(string url, string selector,
         CancellationToken cancellationToken = default)
     {
         await _semaphore.WaitAsync(cancellationToken);
-
+        IBrowserContext? context = null;
+        IPage? page = null;
         try
         {
-            await using var context = await _browser.NewContextAsync(new BrowserNewContextOptions
-            {
-                AcceptDownloads = false,
-                BypassCSP = true,
-                JavaScriptEnabled = true,
-                IgnoreHTTPSErrors = true,
-                UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)",
-                ViewportSize = new ViewportSize { Width = 1280, Height = 720 }
-            });
-
+            context = await _browser!.NewContextAsync(_contextConfig);
             context.SetDefaultTimeout(_config.MaxWaitTimeMs);
             context.SetDefaultNavigationTimeout(_config.MaxWaitTimeMs);
 
-            var page = await context.NewPageAsync();
-
-            // Log console messages and page errors
-            page.Console += (_, msg) => { _log.Debug("Console message: {type} - {text}", msg.Type, msg.Text); };
-            page.PageError += (_, error) => { _log.Warning("Page error: {error}", error); };
+            page = await context.NewPageAsync();
+            page.Console += Page_Console;
+            page.PageError += Page_PageError;
 
             _log.Debug("Navigating to URL: {url}", url);
 
@@ -112,8 +102,11 @@ public class BrowserService : IBrowserService, IAsyncDisposable
             if (!response?.Ok ?? false)
             {
                 _log.Warning("Failed to load page. Status: {status}", response.Status);
-                return new List<string>();
+                return [];
             }
+
+            // Wait a short moment for initial JavaScript to execute
+            await page.WaitForTimeoutAsync(100);
 
             // Handle cookie consent banner if present
             try
@@ -136,14 +129,11 @@ public class BrowserService : IBrowserService, IAsyncDisposable
             await page.Mouse.MoveAsync(centerX, centerY);
             _log.Information("Simulated mouse movement to position ({x}, {y})", centerX, centerY);
 
-            // Wait a short moment for initial JavaScript to execute
-            await page.WaitForTimeoutAsync(100);
-
             // Wait for the selector to appear
-            _log.Debug("Waiting for selector: {selector}", selector);
-
             try
             {
+                _log.Debug("Waiting for selector: {selector}", selector);
+
                 await page.WaitForSelectorAsync(selector, new PageWaitForSelectorOptions
                 {
                     Timeout = _config.MaxWaitTimeMs
@@ -152,7 +142,7 @@ public class BrowserService : IBrowserService, IAsyncDisposable
             catch (TimeoutException)
             {
                 _log.Warning("Selector '{selector}' not found within timeout.", selector);
-                return new List<string>();
+                return [];
             }
 
             var elements = await page.QuerySelectorAllAsync(selector);
@@ -179,16 +169,62 @@ public class BrowserService : IBrowserService, IAsyncDisposable
         }
         finally
         {
+            if (page != null)
+            {
+                page.Console -= Page_Console;
+                page.PageError -= Page_PageError;
+                try
+                {
+                    await page.CloseAsync();
+                }
+                catch (Exception ex)
+                {
+                    _log.Error(ex, "Error occurred while closing the page.");
+                }
+            }
+
+            if (context != null)
+            {
+                try
+                {
+                    await context.CloseAsync();
+                }
+                catch (Exception ex)
+                {
+                    _log.Error(ex, "Error occurred while closing the browser context.");
+                }
+            }
+
             _semaphore.Release();
         }
+    }
+
+    private void Page_PageError(object? sender, string e)
+    {
+        _log.Warning("Page error: {error}", e);
+    }
+
+    private void Page_Console(object? sender, IConsoleMessage msg)
+    {
+        _log.Debug("Console message: {type} - {text}", msg.Type, msg.Text);
+    }
+
+    private void Browser_Disconnect(object? sender, IBrowser e)
+    {
+        _log.Error("Browser disconnected. Sender: {sender}", sender);
     }
 
     public async ValueTask DisposeAsync()
     {
         if (!_disposed)
         {
-            await _browser.CloseAsync();
-            _playwright.Dispose();
+            if (_browser != null)
+            {
+                _browser.Disconnected -= Browser_Disconnect;
+                await _browser.CloseAsync();
+            }
+
+            _playwright?.Dispose();
             _semaphore.Dispose();
             _disposed = true;
         }
