@@ -81,13 +81,14 @@ public class LlmService(OpenAIClient client, IMapper mapper, LlmConfig config) :
         {
             var assistantClient = client.GetAssistantClient();
             var functionToolDefinition = mapper.Map<FunctionToolDefinition>(prompt.GetFunction());
+            functionToolDefinition.StrictParameterSchemaEnabled = true;
             var response = await assistantClient.CreateAssistantAsync(prompt.Model ?? config.ModelName,
                 new AssistantCreationOptions
                 {
                     Name = prompt.Name,
                     Description = prompt.Description,
                     Instructions = prompt.SystemPrompt,
-                    Tools = { functionToolDefinition }
+                    Tools = { functionToolDefinition },
                 });
             return response.Value.Id;
         }
@@ -269,7 +270,8 @@ public class LlmService(OpenAIClient client, IMapper mapper, LlmConfig config) :
     {
         var chatCompletion = await GetCompletion(messages, new ChatCompletionOptions
         {
-            Tools = { functionTool }
+            Tools = { functionTool },
+            AllowParallelToolCalls = false
         }, retryCount);
 
         if (chatCompletion.FinishReason != ChatFinishReason.ToolCalls)
