@@ -1,35 +1,19 @@
 {
   "sites": {
-    "southernliving": {
-      "base_url": "https://www.southernliving.com",
-      "search_page": "/search?q=",
-      "search_results": ".mntl-search-results a[href*=\"/recipes/\"]",
-      "use_template": "meredith_network"
-    },
-    "eatingwell": {
-      "base_url": "https://www.eatingwell.com",
-      "search_page": "/search?q=",
-      "search_results": ".mntl-search-results a[href*=\"/recipe/\"]",
-      "use_template": "meredith_network"
-    },
     "simplyscratch": {
       "base_url": "https://www.simplyscratch.com",
-      "search_results": "#content .post-title a",
       "use_template": "wprm_plugin"
     },
     "meatfreeketo": {
       "base_url": "https://meatfreeketo.com",
-      "search_results": "#content .post-title a",
       "use_template": "wprm_plugin"
     },
     "masalachai": {
       "base_url": "https://www.masalaandchai.com",
-      "search_results": ".feast-recipe-index li a",
       "use_template": "wprm_plugin"
     },
     "cherryonmysundae": {
       "base_url": "https://www.cherryonmysundae.com",
-      "search_results": "#genesis-content li.listing-item a",
       "use_template": "wprm_plugin"
     },
     "twistedtastes": {
@@ -42,23 +26,95 @@
     },
     "lapostademesilla": {
       "base_url": "https://www.lapostademesilla.com",
-      "search_results": ".mk-search-loop .the-title a",
       "use_template": "wprm_plugin"
     },
     "tastesbetterfromscratch": {
       "base_url": "https://www.tastesbetterfromscratch.com",
-      "search_results": ".archive-post-listing .post-summary__title a",
       "use_template": "wprm_plugin"
+    },
+    "feedyoursoul": {
+      "base_url": "https://www.feedyoursoul2.com",
+      "use_template": "wprm_plugin"
+    },
+    "justonecookbook": {
+      "base_url": "https://www.justonecookbook.com",
+      "use_template": "wprm_plugin"
+    },
+    "minimalistbaker": {
+      "base_url": "https://www.minimalistbaker.com",
+      "use_template": "wprm_plugin"
+    },
+    "elanaspantry": {
+      "base_url": "https://elanaspantry.com",
+      "use_template": "wprm_plugin"
+    },
+    "ruled": {
+      "base_url": "https://www.ruled.me",
+      "use_template": "wprm_plugin"
+    },
+    "ketoconnect": {
+      "base_url": "https://www.ketoconnect.net",
+      "use_template": "wprm_plugin"
+    },
+    "nomnompaleo": {
+      "base_url": "https://www.nomnompaleo.com",
+      "use_template": "wprm_plugin"
+    },
+    "anitalianinmykitchen": {
+      "base_url": "https://www.anitalianinmykitchen.com",
+      "use_template": "wprm_plugin"
+    },
+    "paleoleap": {
+      "base_url": "https://www.paleoleap.com",
+      "use_template": "wprm_plugin"
+    },
+    "themediterraneandish": {
+      "base_url": "https://www.themediterraneandish.com",
+      "use_template": "wprm_plugin"
+    },
+    "olivetomato": {
+      "base_url": "https://www.olivetomato.com",
+      "use_template": "wprm_plugin"
+    },
+    "indianhealthyrecipes": {
+      "base_url": "https://www.indianhealthyrecipes.com",
+      "use_template": "wprm_plugin"
+    },
+    "ministryofcurry": {
+      "base_url": "https://ministryofcurry.com",
+      "use_template": "wprm_plugin"
+    },
+    "natashaskitchen": {
+      "base_url": "https://natashaskitchen.com",
+      "use_template": "wprm_plugin"
+    },
+    "iowagirleats": {
+      "base_url": "https://iowagirleats.com/",
+      "use_template": "wprm_plugin"
+    },
+    "southernliving": {
+      "base_url": "https://www.southernliving.com",
+      "search_page": "/search?q=",
+      "search_results": ".mntl-search-results a[href*=\"/recipes/\"]",
+      "use_template": "meredith_network"
+    },
+    "eatingwell": {
+      "base_url": "https://www.eatingwell.com",
+      "search_page": "/search?q=",
+      "search_results": ".mntl-search-results a[href*=\"/recipe/\"]",
+      "use_template": "meredith_network"
     },
     "windycitydinnerfairy": {
       "base_url": "https://www.windycitydinnerfairy.com",
       "search_results": ".sp-grid .item a",
       "use_template": "tasty_recipes_plugin"
     },
-    "feedyoursoul": {
-      "base_url": "https://www.feedyoursoul2.com",
-      "search_results": "#genesis-content a.entry-image-link",
-      "use_template": "wprm_plugin"
+    "cookieandkate": {
+      "base_url": "https://cookieandkate.com",
+      "search_page": "/search?q=",
+      "search_results": ".search-results-title a",
+      "stream_search": "true",
+      "use_template": "tasty_recipes_plugin"
     },
     "inspiretraveleat": {
       "base_url": "https://www.inspiretraveleat.com",
@@ -73,20 +129,6 @@
       "ingredients": ".wprm-recipe-ingredients-container li",
       "directions": "li.wprm-recipe-instruction",
       "notes": ""
-    },
-    "justonecookbook": {
-      "base_url": "https://www.justonecookbook.com/",
-      "search_page": "/#search/q=",
-      "search_results": "a#name",
-      "use_template": "wprm_plugin",
-      "stream_search": "true"
-    },
-    "minimalistbaker": {
-      "base_url": "https://www.minimalistbaker.com/",
-      "search_page": "/#search/q=",
-      "search_results": "a#name",
-      "use_template": "wprm_plugin",
-      "stream_search": "true"
     },
     "bbcfood": {
       "base_url": "https://www.bbc.co.uk",
@@ -149,12 +191,6 @@
       "directions": ".recipe-instructions .instructions p",
       "notes": ".overview-notes"
     },
-    "iowagirleats": {
-      "base_url": "https://iowagirleats.com/",
-      "search_results": ".post-summary__title a",
-      "use_template": "wprm_plugin",
-      "stream_search": "true"
-    },
     "themodernproper": {
       "base_url": "https://www.themodernproper.com",
       "search_page": "/search?q=",
@@ -170,13 +206,6 @@
       "directions": ".recipe-method__text-wrapper li",
       "notes": ""
     },
-    "cookieandkate": {
-      "base_url": "https://cookieandkate.com",
-      "search_page": "/search?q=",
-      "search_results": ".search-results-title a",
-      "stream_search": "true",
-      "use_template": "tasty_recipes_plugin"
-    },
     "vegetariantimes": {
       "base_url": "https://www.vegetariantimes.com",
       "search_page": "/?s=",
@@ -191,12 +220,6 @@
       "ingredients": ".c-recipe-ingredients__list li",
       "directions": ".c-recipe-instructions li",
       "notes": ""
-    },
-    "natashaskitchen": {
-      "base_url": "https://natashaskitchen.com",
-      "search_page": "/#search/q=",
-      "stream_search": "true",
-      "use_template": "wprm_plugin"
     },
     "purewow": {
       "base_url": "https://www.purewow.com",
@@ -229,13 +252,6 @@
       "directions": ".instructions li",
       "notes": ".head_note"
     },
-    "elanaspantry": {
-      "base_url": "https://elanaspantry.com",
-      "search_page": "/#search/q=",
-      "stream_search": "true",
-      "search_results": "#itemCollection #card a",
-      "use_template": "wprm_plugin"
-    },
     "godairyfree": {
       "base_url": "https://www.godairyfree.org",
       "search_page": "/#search/q=",
@@ -251,40 +267,6 @@
       "ingredients": ".ERSIngredients li",
       "directions": ".ERSInstructions li",
       "notes": ""
-    },
-    "ruled": {
-      "base_url": "https://www.ruled.me",
-      "search_page": "/?s=",
-      "search_results": "a.entry-title-link",
-      "use_template": "wprm_plugin"
-    },
-    "ketoconnect": {
-      "base_url": "https://www.ketoconnect.net",
-      "search_page": "/#search/q=",
-      "stream_search": "true",
-      "search_results": "a#name",
-      "use_template": "wprm_plugin"
-    },
-    "nomnompaleo": {
-      "base_url": "https://www.nomnompaleo.com",
-      "search_page": "/#search/q=",
-      "stream_search": "true",
-      "search_results": "a#name",
-      "use_template": "wprm_plugin"
-    },
-    "anitalianinmykitchen": {
-      "base_url": "https://www.anitalianinmykitchen.com",
-      "search_page": "/#search/q=",
-      "stream_search": "true",
-      "search_results": "a#name",
-      "use_template": "wprm_plugin"
-    },
-    "paleoleap": {
-      "base_url": "https://www.paleoleap.com",
-      "search_page": "/#search/q=",
-      "stream_search": "true",
-      "search_results": "a#name",
-      "use_template": "wprm_plugin"
     },
     "monashfodmap": {
       "base_url": "https://www.monashfodmap.com",
@@ -315,20 +297,6 @@
       "ingredients": "#zlrecipe-ingredients-list li",
       "directions": "#zlrecipe-instructions-list li",
       "notes": ""
-    },
-    "themediterraneandish": {
-      "base_url": "https://www.themediterraneandish.com",
-      "search_page": "/#search/q=",
-      "stream_search": "true",
-      "search_results": "a#name",
-      "use_template": "wprm_plugin"
-    },
-    "olivetomato": {
-      "base_url": "https://www.olivetomato.com",
-      "search_page": "/#search/q=",
-      "stream_search": "true",
-      "search_results": "a#name",
-      "use_template": "wprm_plugin"
     },
     "giallozafferano": {
       "base_url": "https://www.giallozafferano.com",
@@ -374,24 +342,12 @@
       "ingredients": ".ingredient",
       "directions": ".recipe-block .MuiBox-root:nth-child(2) li",
       "notes": ""
-    },
-    "indianhealthyrecipes": {
-      "base_url": "https://www.indianhealthyrecipes.com",
-      "search_page": "/?s=",
-      "use_template": "wprm_plugin"
-    },
-    "ministryofcurry": {
-        "base_url": "https://ministryofcurry.com",
-      "search_page": "/#search/q=",
-      "stream_search": "true",
-      "search_results": "a#name",
-      "use_template": "wprm_plugin"
     }
   },
   "templates": {
     "wprm_plugin": {
       "search_page": "/?s=",
-      "search_results": ".entry-title a",
+      "search_results": ".entry-title a, .post-title a, .listing-item a, .search-result-item a, .post-summary__title a, .article-title a, .gridtitle a, a#name",
       "title": ".wprm-recipe-name",
       "description": ".wprm-recipe-summary",
       "image": ".wprm-recipe-image img",
