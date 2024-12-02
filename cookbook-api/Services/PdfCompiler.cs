@@ -9,6 +9,7 @@ using Markdig.Extensions.Tables;
 using Markdig.Syntax;
 using Markdig.Syntax.Inlines;
 using Serilog;
+using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Processing;
 using ILogger = Serilog.ILogger;
 using Image = SixLabors.ImageSharp.Image;
@@ -463,7 +464,8 @@ public class PdfCompiler(PdfCompilerConfig config, IFileService fileService)
             {
                 try
                 {
-                    using var image = Image.Load(imagePath!);
+                    var imageBytes = File.ReadAllBytes(imagePath!);
+                    using var image = Image.Load(imageBytes);
                     var aspectRatio = (float)image.Width / image.Height;
                     var maxWidth = 400f;
                     var maxHeight = 300f;
@@ -477,6 +479,17 @@ public class PdfCompiler(PdfCompilerConfig config, IFileService fileService)
                         targetWidth = targetHeight * aspectRatio;
                     }
 
+                    image.Mutate(x => x.Resize(new ResizeOptions
+                    {
+                        Size = new Size((int)targetWidth, (int)targetHeight),
+                        Mode = ResizeMode.Max,
+                        Position = AnchorPositionMode.Center
+                    }));
+                    
+                    using var ms = new MemoryStream();
+                    image.SaveAsJpeg(ms);
+                    var resizedImageBytes = ms.ToArray();
+
                     container
                         .Shrink()
                         .AlignCenter()
@@ -485,7 +498,7 @@ public class PdfCompiler(PdfCompilerConfig config, IFileService fileService)
                         .MinHeight(100)
                         .MaxWidth(targetWidth)
                         .MaxHeight(targetHeight)
-                        .Image(imagePath!)
+                        .Image(resizedImageBytes)
                         .FitWidth();
                 }
                 catch

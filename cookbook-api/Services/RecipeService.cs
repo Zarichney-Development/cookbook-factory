@@ -126,7 +126,8 @@ public class RecipeService(
         await RankUnrankedRecipesAsync(recipes, query, acceptableScore.Value);
 
         // Check if additional recipes should be web-scraped
-        if (scrape && recipes.Count(r => (r.Relevancy.TryGetValue(query, out var value) ? value.Score : 0) >= acceptableScore) < recipesNeeded)
+        if (scrape && recipes.Count(r =>
+                (r.Relevancy.TryGetValue(query, out var value) ? value.Score : 0) >= acceptableScore) < recipesNeeded)
         {
             // Proceed with web scraping
             var scrapedRecipes = await webscraper.ScrapeForRecipesAsync(query);
@@ -155,6 +156,7 @@ public class RecipeService(
 
     public async Task<List<Recipe>> RankUnrankedRecipesAsync(IEnumerable<ScrapedRecipe> recipes, string query)
         => await RankUnrankedRecipesAsync(mapper.Map<List<Recipe>>(recipes), query, config.AcceptableScoreThreshold);
+
     private async Task<List<Recipe>> RankUnrankedRecipesAsync(List<Recipe> recipes, string query, int acceptableScore)
     {
         var unrankedRecipes = recipes.Where(r => !r.Relevancy.ContainsKey(query)).ToList();
@@ -213,7 +215,7 @@ public class RecipeService(
                             // Check if we have collected enough recipes
                             if (rankedRecipes.Count >= config.RecipesToReturnPerRetrieval)
                             {
-                                cts.Cancel(); // Cancel remaining tasks
+                                await cts.CancelAsync(); // Cancel remaining tasks
                             }
                         }
                     }
@@ -254,7 +256,7 @@ public class RecipeService(
     }
 
     public async Task<(SynthesizedRecipe, List<SynthesizedRecipe>)> SynthesizeRecipe(List<Recipe> recipes,
-        CookbookOrder order, string? recipeName)
+        CookbookOrder order, string recipeName)
     {
         SynthesizedRecipe synthesizedRecipe;
         List<SynthesizedRecipe> rejectedRecipes = [];
@@ -273,17 +275,20 @@ public class RecipeService(
         try
         {
             var synthesizePrompt = synthesizeRecipePrompt.GetUserPrompt(recipes, order);
+
             await llmService.CreateMessage(synthesizingThreadId, synthesizePrompt);
 
-            synthesizeRunId = await llmService.CreateRun(synthesizingThreadId, synthesizingAssistantId, true);
+            synthesizeRunId = await llmService.CreateRun(synthesizingThreadId, synthesizingAssistantId);
 
             var count = 0;
+            string? analysisToolCallId = null;
 
             while (true)
             {
                 count++;
 
-                synthesizedRecipe = await ProcessSynthesisRun(synthesizingThreadId, synthesizeRunId);
+                (var synthesizeToolCallId, synthesizedRecipe) =
+                    await ProcessSynthesisRun(synthesizingThreadId, synthesizeRunId);
 
                 _log.Information("[{Recipe} - Run {count}] Synthesized recipe: {@SynthesizedRecipe}", recipeName, count,
                     synthesizedRecipe);
@@ -293,14 +298,14 @@ public class RecipeService(
                     var analysisPrompt = analyzeRecipePrompt.GetUserPrompt(synthesizedRecipe, order, recipeName);
                     await llmService.CreateMessage(analyzeThreadId, analysisPrompt);
 
-                    analysisRunId = await llmService.CreateRun(analyzeThreadId, analyzeAssistantId, true);
+                    analysisRunId = await llmService.CreateRun(analyzeThreadId, analyzeAssistantId);
                 }
                 else
                 {
-                    await ProvideRevisedRecipe(analyzeThreadId, analysisRunId, synthesizedRecipe);
+                    await ProvideRevisedRecipe(analyzeThreadId, analysisRunId, analysisToolCallId!, synthesizedRecipe);
                 }
 
-                var analysisResult = await ProcessAnalysisRun(analyzeThreadId, analysisRunId);
+                (analysisToolCallId, var analysisResult) = await ProcessAnalysisRun(analyzeThreadId, analysisRunId);
 
                 _log.Information("[{Recipe} - Run {count}] Analysis result: {@Analysis}",
                     recipeName, count, analysisResult);
@@ -326,7 +331,8 @@ public class RecipeService(
 
                 rejectedRecipes.Add(synthesizedRecipe);
 
-                await ProvideAnalysisFeedback(synthesizingThreadId, synthesizeRunId, analysisResult);
+                await ProvideAnalysisFeedback(synthesizingThreadId, synthesizeRunId, synthesizeToolCallId,
+                    analysisResult);
             }
 
             _log.Information("[{Recipe}] Synthesized: {@Recipes}", recipeName, synthesizedRecipe);
@@ -352,7 +358,7 @@ public class RecipeService(
         return (synthesizedRecipe, rejectedRecipes);
     }
 
-    private async Task<SynthesizedRecipe> ProcessSynthesisRun(string threadId, string runId)
+    private async Task<(string, SynthesizedRecipe)> ProcessSynthesisRun(string threadId, string runId)
     {
         while (true)
         {
@@ -365,19 +371,19 @@ public class RecipeService(
 
             if (status == RunStatus.RequiresAction)
             {
-                var result = await llmService.GetRunAction<SynthesizedRecipe>(threadId, runId,
+                var (toolCallId, result) = await llmService.GetRunAction<SynthesizedRecipe>(threadId, runId,
                     synthesizeRecipePrompt.GetFunction().Name);
 
                 result.InspiredBy ??= [];
 
-                return result;
+                return (toolCallId, result);
             }
 
             await Task.Delay(TimeSpan.FromSeconds(1));
         }
     }
 
-    private async Task<RecipeAnalysis> ProcessAnalysisRun(string threadId, string runId)
+    private async Task<(string, RecipeAnalysis)> ProcessAnalysisRun(string threadId, string runId)
     {
         while (true)
         {
@@ -398,24 +404,19 @@ public class RecipeService(
         }
     }
 
-    private async Task ProvideRevisedRecipe(string threadId, string runId, SynthesizedRecipe recipe)
+    private async Task ProvideRevisedRecipe(string threadId, string runId, string toolCallId, SynthesizedRecipe recipe)
     {
-        var toolCallId = await llmService.GetToolCallId(threadId, runId, analyzeRecipePrompt.GetFunction().Name);
-
-        await llmService.SubmitToolOutputsToRun(
+        await llmService.SubmitToolOutputToRun(
             threadId,
             runId,
-            new List<(string, string)>
-            {
-                (toolCallId, JsonSerializer.Serialize(recipe))
-            }
+            toolCallId,
+            JsonSerializer.Serialize(recipe)
         );
     }
 
-    private async Task ProvideAnalysisFeedback(string threadId, string runId, RecipeAnalysis analysis)
+    private async Task ProvideAnalysisFeedback(string threadId, string runId, string toolCallId,
+        RecipeAnalysis analysis)
     {
-        var toolCallId = await llmService.GetToolCallId(threadId, runId, synthesizeRecipePrompt.GetFunction().Name);
-
         var toolOutput =
             $"""
                  A new revision is required. Refer to the QA analysis:
@@ -424,10 +425,11 @@ public class RecipeService(
                  ```
                  """.Trim();
 
-        await llmService.SubmitToolOutputsToRun(
+        await llmService.SubmitToolOutputToRun(
             threadId,
             runId,
-            new List<(string, string)> { (toolCallId, toolOutput) }
+            toolCallId,
+            toolOutput
         );
     }
 }

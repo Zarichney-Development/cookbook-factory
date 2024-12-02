@@ -1,10 +1,11 @@
 using System.Text.Json;
+using AutoMapper;
 using Cookbook.Factory.Models;
 using Cookbook.Factory.Services;
 
 namespace Cookbook.Factory.Prompts;
 
-public class SynthesizeRecipePrompt : PromptBase
+public class SynthesizeRecipePrompt(IMapper mapper) : PromptBase
 {
     public override string Name => "Recipe Maker";
     public override string Description => "Synthesize a new recipe based on existing recipes and user preferences";
@@ -57,7 +58,7 @@ public class SynthesizeRecipePrompt : PromptBase
         $"""
          # Recipe data:
          ```json
-         {JsonSerializer.Serialize(recipes)}
+         {JsonSerializer.Serialize(mapper.Map<List<ScrapedRecipe>>(recipes))}
          ```
 
          # Cookbook Order:

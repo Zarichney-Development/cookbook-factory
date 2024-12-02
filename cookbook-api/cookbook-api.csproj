@@ -50,9 +50,5 @@
         <Content Include="cookbook-api.service" CopyToOutputDirectory="PreserveNewest" />
         <None Update="AwsMaintenance.md" CopyToOutputDirectory="PreserveNewest" />
     </ItemGroup>
-
-    <ItemGroup>
-      <Folder Include="test_results\" />
-    </ItemGroup>
     
 </Project>

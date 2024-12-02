@@ -278,9 +278,45 @@ public class FileService : IFileService
 
     public void DeleteFile(string filePath)
     {
-        File.Delete(filePath);
-        _log.Information("Deleted file: {FileName}", filePath);
+        var retryPolicy = Policy
+            .Handle<IOException>()
+            .Or<UnauthorizedAccessException>()
+            .WaitAndRetry(
+                retryCount: 3,
+                sleepDurationProvider: retryAttempt => TimeSpan.FromMilliseconds(200),
+                onRetry: (exception, timeSpan, retryCount, context) =>
+                {
+                    _log.Warning(exception, "Retry {RetryCount}: Unable to delete file: {FilePath}. Retrying in {RetryTime}ms",
+                        retryCount, filePath, timeSpan.TotalMilliseconds);
+                });
+
+        retryPolicy.Execute(() =>
+        {
+            if (IsFileLocked(filePath))
+            {
+                _log.Warning("File is locked: {FilePath}", filePath);
+                throw new UnauthorizedAccessException();
+            }
+            
+            File.Delete(filePath);
+            _log.Information("Deleted file: {FilePath}", filePath);
+        });
+        
     }
+    
+    private bool IsFileLocked(string filePath)
+    {
+        try
+        {
+            using var stream = new FileStream(filePath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+            return false; // File is not locked
+        }
+        catch (IOException)
+        {
+            return true; // File is locked
+        }
+    }
+
 
     public bool FileExists(string? filePath)
         => !string.IsNullOrEmpty(filePath) && File.Exists(filePath);

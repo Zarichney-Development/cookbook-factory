@@ -199,9 +199,9 @@ public class BrowserService : IBrowserService, IAsyncDisposable
         }
     }
 
-    private void Page_PageError(object? sender, string e)
+    private void Page_PageError(object? sender, object e)
     {
-        _log.Warning("Page error: {error}", e);
+        _log.Warning("Page error: {@error}", e);
     }
 
     private void Page_Console(object? sender, IConsoleMessage msg)

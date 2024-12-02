@@ -28,23 +28,27 @@ public interface ILlmService
     Task<string> CreateThread();
     Task CreateMessage(string threadId, string content, MessageRole role = MessageRole.User);
 
-    Task<string> CreateRun(string threadId, string assistantId, bool toolConstraintRequired = false);
+    Task<string> CreateRun(string threadId, string assistantId, bool requiresToolConstraint = true);
 
-    Task<ChatCompletion> GetCompletion(List<ChatMessage> messages, ChatCompletionOptions? options = null, int? retryCount = null);
+    Task<ChatCompletion> GetCompletion(List<ChatMessage> messages, ChatCompletionOptions? options = null,
+        int? retryCount = null);
 
     Task<(bool isComplete, RunStatus status)> GetRun(string threadId, string runId);
     Task<string> CancelRun(string threadId, string runId);
-    Task SubmitToolOutputsToRun(string threadId, string runId, List<(string toolCallId, string output)> toolOutputs);
+    Task SubmitToolOutputToRun(string threadId, string runId, string toolCallId, string output);
     Task DeleteAssistant(string assistantId);
     Task DeleteThread(string threadId);
-    Task<T> CallFunction<T>(string systemPrompt, string userPrompt, FunctionDefinition function, int? retryCount = null);
-    Task<T> GetRunAction<T>(string threadId, string runId, string functionName);
-    Task<string> GetToolCallId(string threadId, string runId, string functionName);
+
+    Task<T> CallFunction<T>(string systemPrompt, string userPrompt, FunctionDefinition function,
+        int? retryCount = null);
+
+    Task<(string, T)> GetRunAction<T>(string threadId, string runId, string functionName);
 }
 
 public class LlmService(OpenAIClient client, IMapper mapper, LlmConfig config) : ILlmService
 {
     private static readonly ILogger Log = Serilog.Log.ForContext<LlmService>();
+    private readonly Dictionary<string, List<(string toolCallId, string output)>> _runToolOutputs = new();
 
     private readonly AsyncRetryPolicy _retryPolicy = Policy
         .Handle<Exception>()
@@ -53,11 +57,12 @@ public class LlmService(OpenAIClient client, IMapper mapper, LlmConfig config) :
             sleepDurationProvider: _ => TimeSpan.FromSeconds(1),
             onRetry: (exception, _, retryCount, context) =>
             {
-                Log.Warning(exception, "LLM attempt {retryCount}: Retrying due to {exception}. Retry Context: {@Context}",
+                Log.Warning(exception,
+                    "LLM attempt {retryCount}: Retrying due to {exception}. Retry Context: {@Context}",
                     retryCount, exception.Message, context);
             }
         );
-    
+
     private async Task<T> ExecuteWithRetry<T>(int? retryCount, Func<Task<T>> action)
     {
         var policy = Policy
@@ -67,7 +72,8 @@ public class LlmService(OpenAIClient client, IMapper mapper, LlmConfig config) :
                 sleepDurationProvider: _ => TimeSpan.FromSeconds(1),
                 onRetry: (exception, _, currentRetry, context) =>
                 {
-                    Log.Warning(exception, "LLM attempt {retryCount}: Retrying due to {exception}. Retry Context: {@Context}",
+                    Log.Warning(exception,
+                        "LLM attempt {retryCount}: Retrying due to {exception}. Retry Context: {@Context}",
                         currentRetry, exception.Message, context);
                 }
             );
@@ -88,7 +94,7 @@ public class LlmService(OpenAIClient client, IMapper mapper, LlmConfig config) :
                     Name = prompt.Name,
                     Description = prompt.Description,
                     Instructions = prompt.SystemPrompt,
-                    Tools = { functionToolDefinition },
+                    Tools = { functionToolDefinition }
                 });
             return response.Value.Id;
         }
@@ -118,11 +124,12 @@ public class LlmService(OpenAIClient client, IMapper mapper, LlmConfig config) :
     {
         try
         {
+            Log.Information("Creating message for thread {threadId}, message: {content}", threadId, content);
             var assistantClient = client.GetAssistantClient();
             await assistantClient.CreateMessageAsync(
                 threadId,
                 role,
-                new[] { MessageContent.FromText(content) }
+                [MessageContent.FromText(content)]
             );
         }
         catch (Exception e)
@@ -132,18 +139,18 @@ public class LlmService(OpenAIClient client, IMapper mapper, LlmConfig config) :
         }
     }
 
-    public async Task<string> CreateRun(string threadId, string assistantId, bool toolConstraintRequired = false)
+    public async Task<string> CreateRun(string threadId, string assistantId, bool requiresToolConstraint = true)
     {
         try
         {
             var assistantClient = client.GetAssistantClient();
-            var response = await assistantClient.CreateRunAsync(threadId, assistantId, new RunCreationOptions
+            var result = await assistantClient.CreateRunAsync(threadId, assistantId, new RunCreationOptions
             {
-
-                ToolConstraint = toolConstraintRequired ? ToolConstraint.Required : ToolConstraint.None,
+                ToolConstraint = requiresToolConstraint ? ToolConstraint.Required : ToolConstraint.None,
+                AllowParallelToolCalls = false
             });
 
-            var threadRun = response.Value;
+            var threadRun = result.Value;
 
             return threadRun.Id;
         }
@@ -159,9 +166,14 @@ public class LlmService(OpenAIClient client, IMapper mapper, LlmConfig config) :
     {
         try
         {
-            var assistantClient = client.GetAssistantClient();
-            var runResult = await assistantClient.GetRunAsync(threadId, runId);
-            var run = runResult.Value;
+            var run = await GetThreadRun(threadId, runId);
+
+            // If the run is in a terminal state, clean up the tool outputs
+            if (run.Status.IsTerminal)
+            {
+                _runToolOutputs.Remove(runId);
+            }
+
             return (run.Status.IsTerminal, run.Status);
         }
         catch (Exception e)
@@ -196,21 +208,58 @@ public class LlmService(OpenAIClient client, IMapper mapper, LlmConfig config) :
             Log.Error(e, "Error occurred while cancelling run {runId} for thread {threadId}", runId, threadId);
             return "Failed to cancel run.";
         }
+        finally
+        {
+            // Clean up the tool outputs
+            _runToolOutputs.Remove(runId);
+        }
     }
 
-    public async Task SubmitToolOutputsToRun(string threadId, string runId,
-        List<(string toolCallId, string output)> toolOutputs)
+    public async Task SubmitToolOutputToRun(string threadId, string runId, string toolCallId, string output)
     {
         try
         {
+            Log.Information("Submitting tool outputs for run {runId}, thread {threadId} for tool call {toolCallId}, Output: {output}",
+                runId, threadId, toolCallId, output);
+
+            var run = await GetThreadRun(threadId, runId);
+            var requiredToolCallIds = run.RequiredActions.Select(ra => ra.ToolCallId);
+
+            // Retrieve existing tool outputs for this runId
+            if (!_runToolOutputs.TryGetValue(runId, out var toolOutputs))
+            {
+                toolOutputs = [];
+                _runToolOutputs[runId] = toolOutputs;
+            }
+
+            // Stash the tool call ID and arguments for later, required to submit for additional tool calls
+            toolOutputs.Add((toolCallId, output));
+
+            var toolOutputsToSubmit = toolOutputs.Where(to => requiredToolCallIds.Contains(to.toolCallId)).ToList();
+
             var assistantClient = client.GetAssistantClient();
             await assistantClient.SubmitToolOutputsToRunAsync(threadId, runId,
-                toolOutputs.Select(to => new ToolOutput(to.toolCallId, to.output)).ToList());
+                toolOutputsToSubmit.Select(to => new ToolOutput(to.toolCallId, to.output)).ToList());
         }
         catch (Exception e)
         {
             Log.Error(e, "Error occurred while submitting tool outputs for run {runId}, thread {threadId}", runId,
                 threadId);
+            throw;
+        }
+    }
+
+    private async Task<ThreadRun> GetThreadRun(string threadId, string runId)
+    {
+        try
+        {
+            var assistantClient = client.GetAssistantClient();
+            var runResult = await assistantClient.GetRunAsync(threadId, runId);
+            return runResult.Value;
+        }
+        catch (Exception e)
+        {
+            Log.Error(e, "Error occurred while getting run {runId} for thread {threadId}", runId, threadId);
             throw;
         }
     }
@@ -241,7 +290,8 @@ public class LlmService(OpenAIClient client, IMapper mapper, LlmConfig config) :
         }
     }
 
-    public async Task<T> CallFunction<T>(string systemPrompt, string userPrompt, FunctionDefinition function, int? retryCount = null)
+    public async Task<T> CallFunction<T>(string systemPrompt, string userPrompt, FunctionDefinition function,
+        int? retryCount = null)
     {
         Log.Information(
             "Getting response from model. System prompt: {systemPrompt}, User prompt: {userPrompt}, Function: {@function}",
@@ -253,30 +303,51 @@ public class LlmService(OpenAIClient client, IMapper mapper, LlmConfig config) :
             new UserChatMessage(userPrompt)
         };
 
-        var result =  await CallFunction<T>(function, messages, retryCount);
+        var result = await CallFunction<T>(function, messages, retryCount);
 
         return result;
     }
 
 
-    private async Task<T> CallFunction<T>(FunctionDefinition function, List<ChatMessage> messages, int? retryCount = null)
-        => await CallFunction<T>(messages, ChatTool.CreateFunctionTool(
+    private async Task<T> CallFunction<T>(FunctionDefinition function, List<ChatMessage> messages,
+        int? retryCount = null)
+    {
+        var functionToolDefinition = mapper.Map<FunctionToolDefinition>(function);
+        functionToolDefinition.StrictParameterSchemaEnabled = true;
+
+        return await CallFunction<T>(messages, ChatTool.CreateFunctionTool(
             functionName: function.Name,
             functionDescription: function.Description,
-            functionParameters: BinaryData.FromString(function.Parameters)
+            functionParameters: functionToolDefinition.Parameters,
+            true
         ), retryCount);
+    }
 
     private async Task<T> CallFunction<T>(List<ChatMessage> messages, ChatTool functionTool, int? retryCount = null)
     {
         var chatCompletion = await GetCompletion(messages, new ChatCompletionOptions
         {
             Tools = { functionTool },
+            ToolChoice = ChatToolChoice.CreateFunctionChoice(functionTool.FunctionName),
             AllowParallelToolCalls = false
         }, retryCount);
 
-        if (chatCompletion.FinishReason != ChatFinishReason.ToolCalls)
+        if (chatCompletion.FinishReason == ChatFinishReason.ContentFilter)
         {
-            throw new Exception("Failed to get a valid response from the model.");
+            throw new OpenAiContentFilterException("Content filter triggered");
+        }
+
+        if (chatCompletion.FinishReason != ChatFinishReason.ToolCalls
+            && chatCompletion.FinishReason != ChatFinishReason.Stop)
+        {
+            throw new Exception(
+                $"Expected to receive a tool call from the model. Received: '{chatCompletion.FinishReason}'");
+        }
+
+        if (chatCompletion.ToolCalls.All(t => t.FunctionName != functionTool.FunctionName))
+        {
+            throw new Exception(
+                $"Expected function name {functionTool.FunctionName} but got {chatCompletion.ToolCalls.First(t => t.FunctionName != null).FunctionName}");
         }
 
         foreach (var toolCall in chatCompletion.ToolCalls)
@@ -293,7 +364,7 @@ public class LlmService(OpenAIClient client, IMapper mapper, LlmConfig config) :
                 Log.Information("Function arguments: {FunctionArguments}", toolCall.FunctionArguments);
                 using var argumentsJson = JsonDocument.Parse(toolCall.FunctionArguments);
 
-                Log.Information("Deserializing tool call arguments to type {type}", typeof(T).Name);
+                Log.Debug("Deserializing tool call arguments to type {type}", typeof(T).Name);
                 var result = Utils.Deserialize<T>(argumentsJson);
 
                 if (result != null)
@@ -322,7 +393,7 @@ public class LlmService(OpenAIClient client, IMapper mapper, LlmConfig config) :
 
             try
             {
-                Log.Information("Sending prompt to model");
+                Log.Information("Sending prompt to model with {@options}", options);
 
                 var result = await chatClient.CompleteChatAsync(messages, options);
 
@@ -338,19 +409,27 @@ public class LlmService(OpenAIClient client, IMapper mapper, LlmConfig config) :
         });
     }
 
-    public async Task<T> GetRunAction<T>(string threadId, string runId, string functionName)
+    public async Task<(string, T)> GetRunAction<T>(string threadId, string runId, string functionName)
     {
         return await _retryPolicy.ExecuteAsync(async () =>
         {
             try
             {
-                var assistantClient = client.GetAssistantClient();
-                var runResult = await assistantClient.GetRunAsync(threadId, runId);
-                var run = runResult.Value;
+                var run = await GetThreadRun(threadId, runId);
 
                 if (run.Status != RunStatus.RequiresAction)
                 {
                     throw new InvalidOperationException($"Run status is {run.Status}, expected RequiresAction");
+                }
+
+                if (run.RequiredActions.Count > 1)
+                {
+                    Log.Warning("Multiple actions found for run {runId}. Actions:", runId);
+                    foreach (var toolCall in run.RequiredActions)
+                    {
+                        Log.Warning("Tool call ID: {toolCallId}, Function name: {functionName}, Arguments: {arguments}",
+                            toolCall.ToolCallId, toolCall.FunctionName, toolCall.FunctionArguments);
+                    }
                 }
 
                 var action = run.RequiredActions.FirstOrDefault(a => a.FunctionName == functionName);
@@ -359,8 +438,14 @@ public class LlmService(OpenAIClient client, IMapper mapper, LlmConfig config) :
                     throw new InvalidOperationException($"No action found for function {functionName}");
                 }
 
+                // Initialize the tool outputs list if it doesn't exist
+                if (!_runToolOutputs.TryGetValue(runId, out var value))
+                {
+                    value = [];
+                    _runToolOutputs[runId] = value;
+                }
 
-                return Utils.Deserialize<T>(action.FunctionArguments);
+                return (action.ToolCallId, Utils.Deserialize<T>(action.FunctionArguments));
             }
             catch (Exception e)
             {
@@ -370,13 +455,11 @@ public class LlmService(OpenAIClient client, IMapper mapper, LlmConfig config) :
         });
     }
 
-    public async Task<string> GetToolCallId(string threadId, string runId, string functionName)
+    internal async Task<string> GetToolCallId(string threadId, string runId, string functionName)
     {
         try
         {
-            var assistantClient = client.GetAssistantClient();
-            var runResult = await assistantClient.GetRunAsync(threadId, runId);
-            var run = runResult.Value;
+            var run = await GetThreadRun(threadId, runId);
 
             if (run.Status != RunStatus.RequiresAction)
             {
@@ -397,4 +480,9 @@ public class LlmService(OpenAIClient client, IMapper mapper, LlmConfig config) :
             throw;
         }
     }
+}
+
+internal class OpenAiContentFilterException(string errorMessage) : Exception
+{
+    public string ErrorMessage { get; } = errorMessage;
 }

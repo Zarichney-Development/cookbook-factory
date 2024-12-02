@@ -361,11 +361,16 @@ public class RecipeRepository(
 
             return newRecipe;
         }
+        catch (OpenAiContentFilterException ex)
+        {
+            _log.Warning(ex, "Unable to clean recipe data due to getting flagged by content filtering");
+        }
         catch (Exception ex)
         {
             _log.Error(ex, "Error cleaning recipe data: {Message}", ex.Message);
-            // Return the original recipe
-            return recipe;
         }
+
+        // Return the original recipe
+        return recipe;
     }
 }

@@ -106,19 +106,19 @@
     },
     "windycitydinnerfairy": {
       "base_url": "https://www.windycitydinnerfairy.com",
-      "search_results": ".sp-grid .item a",
+      "search_results": ".item-content a",
       "use_template": "tasty_recipes_plugin"
     },
     "cookieandkate": {
       "base_url": "https://cookieandkate.com",
-      "search_page": "/search?q=",
-      "search_results": ".search-results-title a",
-      "stream_search": "true",
+      "search_results": ".post-summary__title a",
       "use_template": "tasty_recipes_plugin"
     },
     "inspiretraveleat": {
       "base_url": "https://www.inspiretraveleat.com",
-      "search_results": "article h2 a",
+      "search_page": "/category/recipes/#growMeSearch=",
+      "stream_search": "true",
+      "search_results": "h5 ~ ul li a",
       "title": ".fl-heading",
       "description": ".fl-module-fl-post-content p:nth-child(2)",
       "image": ".wprm-recipe-image img",
@@ -254,9 +254,8 @@
     },
     "godairyfree": {
       "base_url": "https://www.godairyfree.org",
-      "search_page": "/#search/q=",
-      "stream_search": "true",
-      "search_results": "#itemCollection #card a",
+      "search_page": "/?s=",
+      "search_results": ".post-title a",
       "title": ".ERSName",
       "description": ".ERSSummary",
       "image": ".easyrecipe img",
@@ -360,9 +359,10 @@
       "notes": ".wprm-recipe-notes"
     },
     "tasty_recipes_plugin": {
+      "search_page": "/?s=",
       "title": ".tasty-recipes-title",
       "description": ".tasty-recipes-description-body",
-      "image": ".post-image img",
+      "image": ".post-image img, .post-header--recipe img",
       "prep_time": ".prep-time",
       "cook_time": ".cook-time",
       "total_time": ".total-time",

@@ -1,3 +1,5 @@
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using AutoMapper;
 using OpenAI.Assistants;
 
@@ -27,11 +29,41 @@ public class FunctionDefinitionMappingProfile : Profile
         CreateMap<FunctionDefinition, FunctionToolDefinition>()
             .ForMember(dest => dest.FunctionName, opt => opt.MapFrom(src => src.Name))
             .ForMember(dest => dest.Description, opt => opt.MapFrom(src => src.Description))
-            .ForMember(dest => dest.Parameters, opt => opt.MapFrom(src => BinaryData.FromString(src.Parameters)));
+            .ForMember(dest => dest.Parameters, opt => opt.MapFrom(src => AddAdditionalProperties(src.Parameters)));
+
 
         CreateMap<FunctionToolDefinition, FunctionDefinition>()
             .ForMember(dest => dest.Name, opt => opt.MapFrom(src => src.FunctionName))
             .ForMember(dest => dest.Description, opt => opt.MapFrom(src => src.Description))
             .ForMember(dest => dest.Parameters, opt => opt.MapFrom(src => src.Parameters.ToString()));
+    }
+    
+    private static BinaryData AddAdditionalProperties(string parametersJson)
+    {
+        try
+        {
+            // Parse the JSON into a dynamic object
+            var jsonNode = JsonNode.Parse(parametersJson);
+        
+            if (jsonNode is JsonObject jsonObject)
+            {
+                // Check if "additionalProperties" already exists
+                if (!jsonObject.ContainsKey("additionalProperties"))
+                {
+                    // Add "additionalProperties": false
+                    jsonObject["additionalProperties"] = false;
+                }
+            }
+
+            // Serialize the modified JSON back to a string
+            var updatedJson = jsonNode?.ToJsonString(new JsonSerializerOptions { WriteIndented = false });
+
+            return BinaryData.FromString(updatedJson ?? parametersJson);
+        }
+        catch (JsonException)
+        {
+            // If parsing fails, return the original parameters (fallback)
+            return BinaryData.FromString(parametersJson);
+        }
     }
 }

@@ -63,6 +63,7 @@ public class AnalyzeRecipePrompt : PromptBase
 
     public string GetUserPrompt(SynthesizedRecipe recipe, CookbookOrder order, string? recipeName) =>
         $"""
+         <analysis-request>
          <requested-recipe-name>{recipeName}</requested-recipe-name>
          <cookbook-order>
          ```md
@@ -75,6 +76,7 @@ public class AnalyzeRecipePrompt : PromptBase
          ```
          </recipe-data>
          <goal>Provide a quality score along with an analysis and suggestions for improvement</goal>
+         </analysis-request>
          """;
     
     public override FunctionDefinition GetFunction() => new()
