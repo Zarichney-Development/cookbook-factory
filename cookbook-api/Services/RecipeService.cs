@@ -129,24 +129,25 @@ public class RecipeService(
                         <Context>Online Recipe Searching</Context>
                         <Goal>Your task is to provide an ideal search query that aims to returns search results yielding recipes that forms the basis of the user's requested recipe.</Goal>
                         <Input>A unique recipe name that does not return search results.</Input>
-                        <Output>Only respond with the new search query and nothing else.</Output>
+                        <Output>Respond with only the new search query and nothing else.</Output>
                         <Examples>
                             <Example>
                                 <Input>Pan-Seared Partridge with Herb Infusion</Input>
-                                <Output>Grilled Partridge</Output>
-                            </Example>
-                            <Example>
-                                <Input>Herb-Crusted Venison with Seasonal Vegetables</Input>
-                                <Output>Venison</Output>
+                                <Output>Partridge</Output>
                             </Example>
                             <Example>
                                 <Input>Luigi’s Veggie Power-Up Pizza</Input>
                                 <Output>Vegetable Pizza</Output>
                             </Example>
+                            <Example>
+                                <Input>Herb-Crusted Venison with Seasonal Vegetables</Input>
+                                <Output>Venison</Output>
+                            </Example>
                         </Examples>
                         <Rules>
                             <Rule>Omit Previous Attempts</Rule>
-                            <Rule>Do not include 'Recipe' as part of the search query</Rule>
+                            <Rule>The more attempts made, the more generalized the search query should be</Rule>
+                            <Rule>As part of your search query response suggestion, do not append 'Recipe' or 'Recipes'.</Rule>
                         </Rules>
                     </SystemPrompt>
                     """
