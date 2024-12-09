@@ -253,7 +253,13 @@ public class WebScraperService(
             {
                 try
                 {
-                    var fullUrl = url.StartsWith("https://") ? url : $"{_siteSelectors![site]["base_url"]}{url}";
+                    var fullUrl = url switch
+                    {
+                        _ when url.StartsWith("https://") => url,
+                        _ when url.StartsWith("//") => $"https:{url}",
+                        _ => $"{_siteSelectors![site]["base_url"]}{url}"
+                    };
+                    
                     try
                     {
                         _log.Information("Scraping {recipe} recipe from {url}", query, url);

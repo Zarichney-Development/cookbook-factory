@@ -30,7 +30,7 @@ public interface ILlmService
 
     Task<string> CreateRun(string threadId, string assistantId, bool requiresToolConstraint = true);
 
-    Task<ChatCompletion> GetCompletion(List<ChatMessage> messages, ChatCompletionOptions? options = null,
+    Task<string> GetCompletionContent(List<ChatMessage> messages, ChatCompletionOptions? options = null,
         int? retryCount = null);
 
     Task<(bool isComplete, RunStatus status)> GetRun(string threadId, string runId);
@@ -383,8 +383,15 @@ public class LlmService(OpenAIClient client, IMapper mapper, LlmConfig config) :
 
         throw new Exception("Failed to get a valid response from the model.");
     }
+    
+    public async Task<string> GetCompletionContent(List<ChatMessage> messages, ChatCompletionOptions? options = null,
+        int? retryCount = null)
+    {
+        var completion = await GetCompletion(messages, options, retryCount);
+        return completion.Content[0].Text;
+    }
 
-    public async Task<ChatCompletion> GetCompletion(List<ChatMessage> messages,
+    private async Task<ChatCompletion> GetCompletion(List<ChatMessage> messages,
         ChatCompletionOptions? options = null, int? retryCount = null)
     {
         return await ExecuteWithRetry(retryCount, async () =>
@@ -393,7 +400,7 @@ public class LlmService(OpenAIClient client, IMapper mapper, LlmConfig config) :
 
             try
             {
-                Log.Information("Sending prompt to model with {@options}", options);
+                Log.Information("Sending prompts to model. Messages: {@message}. Options: {@options}", messages, options);
 
                 var result = await chatClient.CompleteChatAsync(messages, options);
 

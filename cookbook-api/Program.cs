@@ -67,6 +67,8 @@ builder.Host.UseSerilog();
 
 builder.Services.AddSingleton(Log.Logger);
 
+builder.Services.AddHostedService<BackgroundTaskService>();
+
 builder.Services.AddHttpContextAccessor();
 
 builder.Services.AddControllers()
@@ -84,7 +86,7 @@ var graphClient = new GraphServiceClient(new ClientSecretCredential(
     new TokenCredentialOptions
     {
         AuthorityHost = AzureAuthorityHosts.AzurePublicCloud
-    }), new[] { "https://graph.microsoft.com/.default" });
+    }), ["https://graph.microsoft.com/.default"]);
 builder.Services.AddSingleton(graphClient);
 
 var apiKey = builder.Configuration["LlmConfig:ApiKey"]
@@ -97,17 +99,13 @@ builder.Services.AddSingleton<IEmailService, EmailService>();
 builder.Services.AddSingleton<ITemplateService, TemplateService>();
 builder.Services.AddSingleton<IBackgroundTaskQueue>(_ => new BackgroundTaskQueue(100));
 builder.Services.AddSingleton<IBrowserService, BrowserService>();
-builder.Services.AddHostedService<BackgroundTaskService>();
+builder.Services.AddSingleton<IRecipeRepository, RecipeRepository>();
 
 builder.Services.AddTransient<RecipeService>();
 builder.Services.AddTransient<OrderService>();
 builder.Services.AddTransient<WebScraperService>();
 builder.Services.AddTransient<PdfCompiler>();
 builder.Services.AddTransient<ILlmService, LlmService>();
-
-builder.Services.AddSingleton<IRecipeRepository, RecipeRepository>();
-var recipeRepository = builder.Services.GetService<IRecipeRepository>();
-await recipeRepository.InitializeAsync();
 
 builder.Services.Configure<ApiKeyConfig>(config =>
 {
@@ -193,6 +191,9 @@ builder.Services.AddRequestResponseLogger(options =>
 });
 
 var app = builder.Build();
+
+var recipeRepository = app.Services.GetRequiredService<IRecipeRepository>();
+await recipeRepository.InitializeAsync();
 
 app.UseMiddleware<RequestResponseLoggerMiddleware>();
 

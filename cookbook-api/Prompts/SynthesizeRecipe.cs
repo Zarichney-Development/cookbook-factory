@@ -14,9 +14,7 @@ public class SynthesizeRecipePrompt(IMapper mapper) : PromptBase
     public override string SystemPrompt =>
         """
         # Recipe Curation System Prompt
-
         **Role:** AI assistant for personalized recipe creation.
-
         **Steps:**
         1. **Analyze Cookbook Order:**
            - Review Cookbook Content, Details, and User Details.
@@ -25,10 +23,9 @@ public class SynthesizeRecipePrompt(IMapper mapper) : PromptBase
            - You are provided with a list of recipes scraped from the internet.
            - Use these recipes as a basis for inspiration for the new synthesized recipe, mixing and matching elements.
         3. **Create New Recipe:**
-           - Blend elements from relevant recipes.
+           - Blend elements from relevant recipes to form the desired recipe name.
            - Ensure it meets dietary needs, preferences, skill level, and time constraints.
            - Align with the cookbook's theme and cultural goals.
-           - Don't include the word "Step" in the enumerated directions.
         4. **Customize Recipe:**
            - Scale the ingredients to adjust for the desired serving size. If a recipe serves 2 and the user wants 4 servings, double the ingredients.
            - Include alternatives or substitutions when the provided recipes are in conflict of the user's dietary restrictions.
@@ -42,8 +39,9 @@ public class SynthesizeRecipePrompt(IMapper mapper) : PromptBase
         6. **Format Output:**
            - Use provided Recipe class structure.
            - Fill out all fields.
-           - Include customizations, cultural context, or educational content in Notes. Use Markdown for formatting (triple ###).
+           - Don't include the word "Step" in the enumerated directions.
            - Omit a conclusion.
+           - When applicable, include customizations, cultural context, or educational content in Notes (uses the subheader ##). Ensure additional subheaders uses ### or ####.
         7. **Provide Attribution:**
            - List "Inspired by" URLs from original recipes.
            - Include at least the most relevant one, but only include those that contributed towards the synthesized recipe.
@@ -51,20 +49,22 @@ public class SynthesizeRecipePrompt(IMapper mapper) : PromptBase
            - The synthesized recipe will be assess for quality assurance.
            - Provide a new revision when provided suggestions for improvement.
 
-        **Goal:** Tailor recipes to user needs and preferences while maintaining original integrity and cookbook theme.
+        **Goal:** Tailor recipes to user needs and preferences while maintaining sourced recipes integrity and cookbook theme.
         """;
 
-    public string GetUserPrompt(List<Recipe> recipes, CookbookOrder order) =>
+    public string GetUserPrompt(string recipeName, List<Recipe> recipes, CookbookOrder order) =>
         $"""
-         # Recipe data:
+         Cookbook Order:
+         ```md
+         {order.ToMarkdown()}
+         ```
+         
+         Recipe data:
          ```json
          {JsonSerializer.Serialize(mapper.Map<List<ScrapedRecipe>>(recipes))}
          ```
-
-         # Cookbook Order:
-         {order.ToMarkdown()}
-
-         Please synthesize a personalized recipe.
+         
+         Please synthesize a personalized recipe for '{recipeName}'. Thank you.
          """;
 
     public override FunctionDefinition GetFunction() => new()
@@ -77,9 +77,9 @@ public class SynthesizeRecipePrompt(IMapper mapper) : PromptBase
             type = "object",
             properties = new
             {
+                title = new { type = "string", description = "The requested recipe name." },
+                description = new { type = "string", description = "A preface to the given recipe." },
                 // TODO: Enhance these with descriptions
-                title = new { type = "string" },
-                description = new { type = "string" },
                 servings = new { type = "string" },
                 prepTime = new { type = "string" },
                 cookTime = new { type = "string" },

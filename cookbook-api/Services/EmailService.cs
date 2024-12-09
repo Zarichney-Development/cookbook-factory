@@ -25,7 +25,7 @@ public class EmailConfig : IConfig
 public interface IEmailService
 {
     Task SendEmail(string recipient, string subject, string templateName,
-        Dictionary<string, object> templateData, byte[] pdf);
+        Dictionary<string, object> templateData, byte[]? attachment = null);
 
     Task<bool> ValidateEmail(string email);
 }
@@ -40,7 +40,7 @@ public class EmailService(
     private readonly ILogger _log = Log.ForContext<EmailService>();
 
     public async Task SendEmail(string recipient, string subject, string templateName,
-        Dictionary<string, object> templateData, byte[] pdf)
+        Dictionary<string, object> templateData, byte[]? attachment = null)
     {
         string bodyContent;
         try
@@ -83,21 +83,23 @@ public class EmailService(
                     }
                 }
             ],
-            Attachments =
-            [
-                new FileAttachment
-                {
-                    Name = "Cookbook.pdf",
-                    ContentType = "application/pdf",
-                    ContentBytes = pdf
-                }
-            ]
+            Attachments = []
         };
+        
+        if (attachment != null)
+        {
+            message.Attachments.Add(new FileAttachment
+            {
+                Name = "Cookbook.pdf",
+                ContentType = "application/pdf",
+                ContentBytes = attachment
+            });
+        }
 
         var requestBody = new SendMailPostRequestBody
         {
             Message = message,
-            SaveToSentItems = true
+            SaveToSentItems = message.ToRecipients.Any(r => r.EmailAddress!.Address != config.FromEmail)
         };
 
         try
@@ -108,8 +110,8 @@ public class EmailService(
                 ToEmail = recipient,
                 Subject = subject,
                 HasContent = !string.IsNullOrEmpty(message.Body.Content),
-                ContentLength = message.Body.Content?.Length ?? 0,
-                AttachmentSize = pdf.Length,
+                ContentLength = message.Body.Content?.Length,
+                AttachmentSize = attachment?.Length,
                 config.AzureAppId
             });
 

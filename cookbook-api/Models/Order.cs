@@ -41,7 +41,16 @@ public class CookbookOrder : CookbookOrderSubmission
 
     public string OrderId { get; set; } = null!;
     public List<string> RecipeList { get; set; } = null!;
-    public List<SynthesizedRecipe>? SynthesizedRecipes { get; set; }
+    public List<SynthesizedRecipe> SynthesizedRecipes { get; set; } = [];
+    public OrderStatus Status { get; set; } = OrderStatus.Submitted;
+}
+
+public enum OrderStatus
+{
+    Submitted,
+    InProgress,
+    Completed,
+    Paid
 }
 
 public class CookbookContent

@@ -2,117 +2,229 @@
   "sites": {
     "simplyscratch": {
       "base_url": "https://www.simplyscratch.com",
-      "use_template": "wprm_plugin"
+      "use_template": "wprm_plugin",
+      "test_query": "burger"
     },
     "meatfreeketo": {
       "base_url": "https://meatfreeketo.com",
-      "use_template": "wprm_plugin"
+      "use_template": "wprm_plugin",
+      "test_query": "burger"
     },
     "masalachai": {
       "base_url": "https://www.masalaandchai.com",
-      "use_template": "wprm_plugin"
+      "use_template": "wprm_plugin",
+      "test_query": "rice"
     },
     "cherryonmysundae": {
       "base_url": "https://www.cherryonmysundae.com",
-      "use_template": "wprm_plugin"
+      "use_template": "wprm_plugin",
+      "test_query": "oats"
     },
     "twistedtastes": {
       "base_url": "https://www.twistedtastes.com",
-      "use_template": "wprm_plugin"
+      "use_template": "wprm_plugin",
+      "test_query": "burger"
     },
     "jahzkitchen": {
       "base_url": "https://www.jahzkitchen.com",
-      "use_template": "wprm_plugin"
+      "use_template": "wprm_plugin",
+      "test_query": "rice"
     },
     "lapostademesilla": {
       "base_url": "https://www.lapostademesilla.com",
-      "use_template": "wprm_plugin"
+      "use_template": "wprm_plugin",
+      "test_query": "burger"
     },
     "tastesbetterfromscratch": {
       "base_url": "https://www.tastesbetterfromscratch.com",
-      "use_template": "wprm_plugin"
+      "use_template": "wprm_plugin",
+      "test_query": "burger"
     },
     "feedyoursoul": {
       "base_url": "https://www.feedyoursoul2.com",
-      "use_template": "wprm_plugin"
+      "use_template": "wprm_plugin",
+      "test_query": "burger"
     },
     "justonecookbook": {
       "base_url": "https://www.justonecookbook.com",
-      "use_template": "wprm_plugin"
+      "use_template": "wprm_plugin",
+      "test_query": "rice"
     },
     "minimalistbaker": {
       "base_url": "https://www.minimalistbaker.com",
-      "use_template": "wprm_plugin"
+      "use_template": "wprm_plugin",
+      "test_query": "oats"
     },
     "elanaspantry": {
       "base_url": "https://elanaspantry.com",
-      "use_template": "wprm_plugin"
+      "use_template": "wprm_plugin",
+      "test_query": "oats"
     },
     "ruled": {
       "base_url": "https://www.ruled.me",
-      "use_template": "wprm_plugin"
+      "use_template": "wprm_plugin",
+      "test_query": "burger"
     },
     "ketoconnect": {
       "base_url": "https://www.ketoconnect.net",
-      "use_template": "wprm_plugin"
+      "use_template": "wprm_plugin",
+      "test_query": "burger"
     },
     "nomnompaleo": {
       "base_url": "https://www.nomnompaleo.com",
-      "use_template": "wprm_plugin"
+      "use_template": "wprm_plugin",
+      "test_query": "burger"
     },
     "anitalianinmykitchen": {
       "base_url": "https://www.anitalianinmykitchen.com",
-      "use_template": "wprm_plugin"
+      "use_template": "wprm_plugin",
+      "test_query": "rice"
     },
     "paleoleap": {
       "base_url": "https://www.paleoleap.com",
-      "use_template": "wprm_plugin"
+      "use_template": "wprm_plugin",
+      "test_query": "burger"
     },
     "themediterraneandish": {
       "base_url": "https://www.themediterraneandish.com",
-      "use_template": "wprm_plugin"
+      "use_template": "wprm_plugin",
+      "test_query": "rice"
     },
     "olivetomato": {
       "base_url": "https://www.olivetomato.com",
-      "use_template": "wprm_plugin"
+      "use_template": "wprm_plugin",
+      "test_query": "rice"
     },
     "indianhealthyrecipes": {
       "base_url": "https://www.indianhealthyrecipes.com",
-      "use_template": "wprm_plugin"
+      "use_template": "wprm_plugin",
+      "test_query": "rice"
     },
     "ministryofcurry": {
       "base_url": "https://ministryofcurry.com",
-      "use_template": "wprm_plugin"
+      "use_template": "wprm_plugin",
+      "test_query": "rice"
     },
     "natashaskitchen": {
       "base_url": "https://natashaskitchen.com",
-      "use_template": "wprm_plugin"
+      "use_template": "wprm_plugin",
+      "test_query": "burger"
     },
     "iowagirleats": {
       "base_url": "https://iowagirleats.com/",
-      "use_template": "wprm_plugin"
+      "use_template": "wprm_plugin",
+      "test_query": "burger"
+    },
+    "thewoksoflife": {
+      "base_url": "https://thewoksoflife.com",
+      "use_template": "wprm_plugin",
+      "test_query": "rice"
+    },
+    "bewildeats": {
+      "base_url": "https://bewildeats.com",
+      "use_template": "wprm_plugin",
+      "test_query": "venison"
+    },
+    "girlheartfood": {
+      "base_url": "https://girlheartfood.com",
+      "use_template": "wprm_plugin",
+      "test_query": "moose stew"
+    },
+    "chinasichuanfood": {
+      "base_url": "https://www.chinasichuanfood.com",
+      "use_template": "wprm_plugin",
+      "test_query": "rice"
+    },
+    "rachelcooksthai": {
+      "base_url": "https://www.rachelcooksthai.com",
+      "use_template": "wprm_plugin",
+      "test_query": "rice"
+    },
+    "hotthaikitchen": {
+      "base_url": "https://hot-thai-kitchen.com",
+      "use_template": "wprm_plugin",
+      "test_query": "rice"
+    },
+    "cookwithmanali": {
+      "base_url": "https://www.cookwithmanali.com",
+      "use_template": "wprm_plugin",
+      "test_query": "rice"
+    },
+    "mexicanplease": {
+      "base_url": "https://www.mexicanplease.com",
+      "use_template": "wprm_plugin",
+      "test_query": "rice"
+    },
+    "isabeleats": {
+      "base_url": "https://www.isabeleats.com",
+      "use_template": "wprm_plugin",
+      "test_query": "rice"
+    },
+    "mamaslebanesekitchen": {
+      "base_url": "https://www.mamaslebanesekitchen.com",
+      "use_template": "wprm_plugin",
+      "test_query": "rice"
+    },
+    "africanbites": {
+      "base_url": "https://www.africanbites.com",
+      "use_template": "wprm_plugin",
+      "test_query": "rice"
+    },
+    "hebbarskitchen": {
+      "base_url": "https://hebbarskitchen.com",
+      "use_template": "wprm_plugin",
+      "test_query": "rice"
+    },
+    "vegrecipesofindia": {
+      "base_url": "https://www.vegrecipesofindia.com",
+      "use_template": "wprm_plugin",
+      "test_query": "rice"
+    },
+    "yummytummyaarthi": {
+      "base_url": "https://www.yummytummyaarthi.com",
+      "use_template": "wprm_plugin",
+      "test_query": "rice"
+    },
+    "sinfullyspicy": {
+      "base_url": "https://www.sinfullyspicy.com",
+      "use_template": "wprm_plugin",
+      "test_query": "rice"
+    },
+    "feastwithsafiya": {
+      "base_url": "https://www.feastwithsafiya.com",
+      "use_template": "wprm_plugin",
+      "test_query": "rice"
+    },
+    "whiskaffair": {
+      "base_url": "https://www.whiskaffair.com",
+      "use_template": "wprm_plugin",
+      "test_query": "rice"
     },
     "southernliving": {
       "base_url": "https://www.southernliving.com",
       "search_page": "/search?q=",
       "search_results": ".mntl-search-results a[href*=\"/recipes/\"]",
-      "use_template": "meredith_network"
+      "use_template": "meredith_network",
+      "test_query": "burger"
     },
     "eatingwell": {
       "base_url": "https://www.eatingwell.com",
       "search_page": "/search?q=",
       "search_results": ".mntl-search-results a[href*=\"/recipe/\"]",
-      "use_template": "meredith_network"
+      "use_template": "meredith_network",
+      "test_query": "oats"
     },
     "windycitydinnerfairy": {
       "base_url": "https://www.windycitydinnerfairy.com",
       "search_results": ".item-content a",
-      "use_template": "tasty_recipes_plugin"
+      "use_template": "tasty_recipes_plugin",
+      "test_query": "oats"
     },
     "cookieandkate": {
       "base_url": "https://cookieandkate.com",
       "search_results": ".post-summary__title a",
-      "use_template": "tasty_recipes_plugin"
+      "use_template": "tasty_recipes_plugin",
+      "test_query": "oats"
     },
     "inspiretraveleat": {
       "base_url": "https://www.inspiretraveleat.com",
@@ -128,7 +240,24 @@
       "servings": ".wprm-recipe-servings-with-unit",
       "ingredients": ".wprm-recipe-ingredients-container li",
       "directions": "li.wprm-recipe-instruction",
-      "notes": ""
+      "notes": "",
+      "test_query": "oats"
+    },
+    "themeateater": {
+      "base_url": "https://www.themeateater.com",
+      "search_page": "/recipes?qs=",
+      "search_results": "a[href*=\"/cook/recipes/\"]",
+      "title": "h1",
+      "description": "",
+      "image": "picture img",
+      "prep_time": "",
+      "cook_time": "",
+      "total_time": "ul[class*=\"information\"] li:nth-last-child(2)",
+      "servings": "ul[class*=\"information\"] li:nth-last-child(1)",
+      "ingredients": "[class*=\"ingredients\"] ul li",
+      "directions": "[class*=\"steps\"] ol li",
+      "notes": "",
+      "test_query": "venison"
     },
     "bbcfood": {
       "base_url": "https://www.bbc.co.uk",
@@ -143,7 +272,8 @@
       "total_time": "",
       "ingredients": ".recipe-ingredients__list li",
       "directions": ".recipe-method__list li",
-      "notes": ".recipe-ingredients__sub-heading"
+      "notes": ".recipe-ingredients__sub-heading",
+      "test_query": "burger"
     },
     "bbcgoodfood": {
       "base_url": "https://www.bbcgoodfood.com",
@@ -158,7 +288,8 @@
       "total_time": "",
       "ingredients": ".ingredients-list li",
       "directions": ".method-steps__list li",
-      "notes": ""
+      "notes": "",
+      "test_query": "burger"
     },
     "bettycrocker": {
       "base_url": "https://www.bettycrocker.com",
@@ -174,7 +305,8 @@
       "total_time": ".rdpAttributes ul li:nth-child(2) .attributeValue",
       "ingredients": "li.ingredient",
       "directions": "li.recipeStep",
-      "notes": ".nutritionPreview"
+      "notes": ".nutritionPreview",
+      "test_query": "burger"
     },
     "bigoven": {
       "base_url": "https://www.bigoven.com",
@@ -189,7 +321,8 @@
       "total_time": ".ready-in",
       "ingredients": "ul.ingredients-list li",
       "directions": ".recipe-instructions .instructions p",
-      "notes": ".overview-notes"
+      "notes": ".overview-notes",
+      "test_query": "burger"
     },
     "themodernproper": {
       "base_url": "https://www.themodernproper.com",
@@ -204,7 +337,8 @@
       "servings": ".recipe-intro__stats-list li:nth-child(1) .recipe-intro__stat-item--value",
       "ingredients": ".recipe-ingredients__list li",
       "directions": ".recipe-method__text-wrapper li",
-      "notes": ""
+      "notes": "",
+      "test_query": "burger"
     },
     "vegetariantimes": {
       "base_url": "https://www.vegetariantimes.com",
@@ -219,7 +353,8 @@
       "total_time": "",
       "ingredients": ".c-recipe-ingredients__list li",
       "directions": ".c-recipe-instructions li",
-      "notes": ""
+      "notes": "",
+      "test_query": "oats"
     },
     "purewow": {
       "base_url": "https://www.purewow.com",
@@ -234,7 +369,8 @@
       "servings": ".recipe-time-byline .serves",
       "ingredients": ".ingredients .ingredient",
       "directions": ".directions .recipe-direction",
-      "notes": ""
+      "notes": "",
+      "test_query": "oats"
     },
     "ohsheglows": {
       "base_url": "https://ohsheglows.com",
@@ -250,7 +386,8 @@
       "servings": ".yield",
       "ingredients": ".ingredients li",
       "directions": ".instructions li",
-      "notes": ".head_note"
+      "notes": ".head_note",
+      "test_query": "oats"
     },
     "godairyfree": {
       "base_url": "https://www.godairyfree.org",
@@ -265,7 +402,8 @@
       "servings": ".ERSServes",
       "ingredients": ".ERSIngredients li",
       "directions": ".ERSInstructions li",
-      "notes": ""
+      "notes": "",
+      "test_query": "oats"
     },
     "monashfodmap": {
       "base_url": "https://www.monashfodmap.com",
@@ -280,7 +418,8 @@
       "total_time": ".total_time_data",
       "ingredients": ".ingredientdescholder",
       "directions": ".stepsitem",
-      "notes": ".post-article h2 ~ .rich-text"
+      "notes": ".post-article h2 ~ .rich-text",
+      "test_query": "oats"
     },
     "pescetarian": {
       "base_url": "https://www.pescetarian.kitchen",
@@ -295,7 +434,8 @@
       "servings": "#zlrecipe-yield span",
       "ingredients": "#zlrecipe-ingredients-list li",
       "directions": "#zlrecipe-instructions-list li",
-      "notes": ""
+      "notes": "",
+      "test_query": "burger"
     },
     "giallozafferano": {
       "base_url": "https://www.giallozafferano.com",
@@ -310,7 +450,8 @@
       "total_time": "",
       "ingredients": ".gz-ingredient",
       "directions": ".gz-content-recipe-step",
-      "notes": ".gz-content-recipe"
+      "notes": ".gz-content-recipe",
+      "test_query": "rice"
     },
     "pardonyourfrench": {
       "base_url": "https://www.pardonyourfrench.com",
@@ -325,7 +466,8 @@
       "servings": ".penci-recipe-meta .servings",
       "ingredients": ".penci-recipe-ingredients p, .penci-recipe-ingredients li",
       "directions": ".penci-recipe-method li",
-      "notes": ""
+      "notes": "",
+      "test_query": "soup"
     },
     "saveur": {
       "base_url": "https://www.saveur.com",
@@ -340,13 +482,39 @@
       "total_time": "h1 ~ ul li:nth-child(2) p",
       "ingredients": ".ingredient",
       "directions": ".recipe-block .MuiBox-root:nth-child(2) li",
-      "notes": ""
+      "notes": "",
+      "test_query": "burger"
+    },
+    "laylita": {
+      "base_url": "https://www.laylita.com",
+      "search_page": "/recipes/?s=",
+      "stream_search": "true",
+      "use_template": "wprm_plugin",
+      "search_results": "a.jetpack-instant-search__search-result-title-link",
+      "test_query": "rice"
+    },
+    "beefitswhatsfordinner": {
+      "base_url": "https://www.beefitswhatsfordinner.com",
+      "search_page": "/recipes/search?Qal=",
+      "stream_search": "true",
+      "search_results": "a[href*=\"/recipe/\"]",
+      "title": ".recipe-header h1",
+      "description": ".recipe-description",
+      "image": ".recipe-images img",
+      "servings": ".recipe-brief ul li:nth-child(2)",
+      "prep_time": "",
+      "cook_time": "",
+      "total_time": ".recipe-brief ul li:nth-child(1)",
+      "ingredients": ".recipe-box li",
+      "directions": ".cooking-instructions li",
+      "notes": ".recipe-safety",
+      "test_query": "burger"
     }
   },
   "templates": {
     "wprm_plugin": {
       "search_page": "/?s=",
-      "search_results": ".entry-title a, .post-title a, .listing-item a, .search-result-item a, .post-summary__title a, .article-title a, .gridtitle a, a#name",
+      "search_results": ".entry-title a, .post-title a, .listing-item a, .search-result-item a, .post-summary__title a, .article-title a, .gridtitle a, a#name, .wp-block-post-title a",
       "title": ".wprm-recipe-name",
       "description": ".wprm-recipe-summary",
       "image": ".wprm-recipe-image img",

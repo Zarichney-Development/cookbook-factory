@@ -122,9 +122,9 @@ public static class Utils
 
 public static class ObjectExtensions
 {
-    public static string ToMarkdown(this object obj, string? title)
+    public static string ToMarkdown(this object obj, string? titleName)
     {
-        var sb = new StringBuilder($"## {title}\n");
+        var sb = new StringBuilder();
         var properties = obj.GetType().GetProperties();
 
         foreach (var prop in properties)
@@ -132,7 +132,16 @@ public static class ObjectExtensions
             AppendPropertyIfNotEmpty(sb, obj, prop);
         }
 
-        return sb.ToString();
+        if (sb.Length == 0)
+        {
+            sb.AppendLine("No content available.");
+        }
+
+        var title = $"## {titleName}";
+
+        var content = $"{title}\n{sb}";
+
+        return content;
     }
 
     private static void AppendPropertyIfNotEmpty(StringBuilder sb, object obj, PropertyInfo prop)

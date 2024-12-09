@@ -69,6 +69,8 @@ public class SynthesizedRecipe
     public List<string>? InspiredBy { get; set; }
 
     public List<string>? ImageUrls { get; set; }
+    
+    public List<Recipe>? SourceRecipes { get; set; }
 
     public int? QualityScore { get; set; }
     public string? Analysis { get; set; }

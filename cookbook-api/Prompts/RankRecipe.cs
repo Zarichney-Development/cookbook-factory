@@ -11,15 +11,15 @@ public class RankRecipePrompt : PromptBase
 
     public override string SystemPrompt
         => """
-           You are a specialist in assessing the relevancy of a recipe given a query.
+           You are a specialist in assessing the relevancy of a recipe against the search query.
            Your task is to identify the degree to how relevant is a given recipe against the desired recipe query name.
            Assign a relevancy score from 0 to 100, where:
               - 0: The recipe data is for something else.
-              - 1-39: The recipe data is not relevant.
-              - 40-69: Somewhat relevant to the query.
-              - 70-79: This recipe could be an expected result for the query.
-              - 80-89: Relevant.
-              - 90-99: This recipe is expected to be a top search results.
+              - 1-29: The recipe data is not relevant.
+              - 30-49: Somewhat relevant to the query.
+              - 50-69: This recipe is similar enough.
+              - 70-79: Relevant.
+              - 80-99: This recipe is expected to be a top search results.
               - 100: Perfect match, exactly the same.
            Along with the score, provide a brief and concise justification of your decision.
            """;

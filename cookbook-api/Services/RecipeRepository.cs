@@ -16,9 +16,9 @@ public interface IRecipeRepository
 }
 
 public class RecipeRepository(
+    IServiceProvider serviceProvider,
     RecipeConfig config,
     IFileService fileService,
-    ILlmService llmService,
     IMapper mapper,
     CleanRecipePrompt cleanRecipePrompt,
     RecipeNamerPrompt recipeNamerPrompt)
@@ -134,7 +134,7 @@ public class RecipeRepository(
             throw new ArgumentException("Search query cannot be empty", nameof(query));
         }
 
-        _log.Information("Searching for recipes matching query: {Query}", query);
+        _log.Information("Looking up repository for recipes matching query: {Query}", query);
 
         return await Task.Run(() =>
         {
@@ -150,13 +150,12 @@ public class RecipeRepository(
             }
 
             // Fuzzy matches
-            foreach (var kvp in _recipes)
+            foreach (var (key, value) in _recipes)
             {
-                var key = kvp.Key;
                 if (key.Contains(query, StringComparison.OrdinalIgnoreCase) ||
                     query.Contains(key, StringComparison.OrdinalIgnoreCase))
                 {
-                    foreach (var recipe in kvp.Value.Values)
+                    foreach (var recipe in value.Values)
                     {
                         results.TryAdd(recipe.Id!, recipe);
                     }
@@ -255,6 +254,7 @@ public class RecipeRepository(
         {
             try
             {
+                var llmService = serviceProvider.GetRequiredService<ILlmService>();
                 var result = await llmService.CallFunction<RenamerResult>(
                     recipeNamerPrompt.SystemPrompt,
                     recipeNamerPrompt.GetUserPrompt(recipe),
@@ -341,6 +341,7 @@ public class RecipeRepository(
 
         try
         {
+            var llmService = serviceProvider.GetRequiredService<ILlmService>();
             var cleanedRecipe = await llmService.CallFunction<CleanedRecipe>(
                 cleanRecipePrompt.SystemPrompt,
                 cleanRecipePrompt.GetUserPrompt(recipe),

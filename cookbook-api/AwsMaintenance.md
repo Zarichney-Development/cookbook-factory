@@ -340,3 +340,67 @@ Environment=CHROMIUM_FLAGS="--single-process --no-sandbox"
 [Install]
 WantedBy=multi-user.target
 ```
+
+
+## **Managing Systemd Service**
+
+### **Service File Configuration**
+
+Ensure `/etc/systemd/system/cookbook-api.service` is properly configured.
+
+- **Set `MemoryLimit` to prevent the application from consuming all available memory.
+
+### **Reload and Restart Service**
+
+- **Reload systemd daemon:**
+
+  ```bash
+  sudo systemctl daemon-reload
+  ```
+
+- **Restart the service:**
+
+  ```bash
+  sudo systemctl restart cookbook-api.service
+  ```
+
+- **Check service status:**
+
+  ```bash
+  sudo systemctl status cookbook-api.service
+  ```
+
+---
+
+## **Scripts**
+
+### **start-cookbook.sh**
+
+- **Purpose:** Starts the `cookbook-api` application.
+
+- **Ensure it has execute permissions:**
+
+  ```bash
+  chmod +x /opt/cookbook-api/start-cookbook.sh
+  ```
+
+### **cleanup-playwright.sh**
+
+- **Purpose:** Cleans up Playwright processes and temporary files.
+
+- **Modifications:**
+
+    - **Remove or comment out commands requiring root permissions, such as writing to `/proc/sys/vm/drop_caches`.
+    - **Handle `find` command permission errors by excluding protected directories or suppressing errors:
+
+      ```bash
+      find /tmp -name "playwright*" 2>/dev/null -exec rm -rf {} +
+      ```
+
+- **Ensure it has execute permissions:**
+
+  ```bash
+  chmod +x /opt/cookbook-api/cleanup-playwright.sh
+  ```
+
+---

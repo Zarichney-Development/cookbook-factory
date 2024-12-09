@@ -25,21 +25,21 @@ public static class ConfigurationExtensions
 {
     private const string PlaceholderValue = "recommended to set in app secrets";
     private const string DataFolderName = "Data";
-    
+
     public static void RegisterConfigurationServices(this IServiceCollection services, IConfiguration configuration)
     {
         var dataPath = Environment.GetEnvironmentVariable("APP_DATA_PATH") ?? "Data";
-        Log.Verbose("APP_DATA_PATH environment variable: {DataPath}", dataPath);
+        Log.Debug("APP_DATA_PATH environment variable: {DataPath}", dataPath);
 
         var pathConfigs = configuration.AsEnumerable()
             .Where(kvp => kvp.Value?.StartsWith($"{DataFolderName}/") == true)
             .ToList();
 
-        Log.Verbose("Found {Count} Data/ paths in configuration:", pathConfigs.Count);
+        Log.Debug("Found {Count} Data/ paths in configuration:", pathConfigs.Count);
         foreach (var kvp in pathConfigs)
         {
             var newPath = Path.Combine(dataPath, kvp.Value![$"{DataFolderName}/".Length..]);
-            Log.Verbose("Transforming path: {OldPath} -> {NewPath}", kvp.Value, newPath);
+            Log.Debug("Transforming path: {OldPath} -> {NewPath}", kvp.Value, newPath);
         }
 
         var transformedPaths = pathConfigs
@@ -53,9 +53,9 @@ public static class ConfigurationExtensions
         {
             ((IConfigurationBuilder)configuration)
                 .AddInMemoryCollection(transformedPaths!);
-        
+
             // Verify final configuration
-            Log.Verbose("Final configuration paths:");
+            Log.Debug("Final configuration paths:");
             foreach (var kvp in pathConfigs)
             {
                 var finalValue = configuration[kvp.Key];
@@ -64,7 +64,7 @@ public static class ConfigurationExtensions
         }
         else
         {
-            Log.Verbose("No paths were transformed!");
+            Log.Debug("No paths were transformed!");
         }
 
         var configTypes = Assembly.GetExecutingAssembly()

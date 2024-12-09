@@ -209,7 +209,9 @@ public class ApiController(
                 return BadRequest("Query parameter is required");
             }
 
-            var recipes = await recipeService.GetRecipes(query, null, scrape);
+            var recipes = scrape
+                ? await recipeService.GetRecipes(query) // include the feature of replacement name when scraping
+                : await recipeService.GetRecipes(query, false);
 
             if (recipes.ToList().Count == 0)
             {
@@ -217,6 +219,10 @@ public class ApiController(
             }
 
             return Ok(recipes);
+        }
+        catch (NoRecipeException e)
+        {
+            return NotFound(e.Message);
         }
         catch (Exception ex)
         {

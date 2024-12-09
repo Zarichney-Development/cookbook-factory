@@ -17,10 +17,11 @@ public class CleanRecipePrompt(IMapper mapper) : PromptBase
         1. Use consistent units (imperial or metric), and check spacing/spelling.
         2. Format ingredients and directions as string arrays with no prefix. If ingredients/steps are merged, break them out into separate lines.
         3. Remove irrelevant content (e.g., "Print Pin It") or bad encoding chars (e.g. '[]').
-        4. Do not add or alter recipe details.
-        5. Keep empty fields; replace nulls with empty strings.
-        6. Ensure consistent formatting.
-        7. Exclude field names within field values (e.g., {'servings': '4'} and not {'servings': 'Servings 4'}).
+        4. Remove redundant whitespace, tabs and newlines (e.g '\n')
+        5. Do NOT add or alter recipe details.
+        6. Keep empty fields; replace nulls with empty strings.
+        7. Ensure consistent formatting.
+        8. Exclude field names within field values (e.g., {'servings': '4'} and not {'servings': 'Servings 4'}).
         """;
 
     public string GetUserPrompt(Recipe recipe)

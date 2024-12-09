@@ -16,7 +16,7 @@ public class RecipeConfig : IConfig
     public int RecipesToReturnPerRetrieval { get; init; } = 5;
     public int AcceptableScoreThreshold { get; init; } = 80;
     public int QualityScoreThreshold { get; init; } = 80;
-    public int MaxNewRecipeNameAttempts { get; init; } = 5;
+    public int MaxNewRecipeNameAttempts { get; init; } = 6;
     public int MaxParallelTasks { get; init; } = 5;
     public string OutputDirectory { get; init; } = "Recipes";
 }
@@ -35,83 +35,138 @@ public class RecipeService(
 {
     private readonly ILogger _log = Log.ForContext<RecipeService>();
 
-    public async Task<List<Recipe>> GetRecipes(string requestedRecipeName, CookbookOrder cookbookOrder)
+    public async Task<List<Recipe>> GetRecipes(string requestedRecipeName, CookbookOrder? cookbookOrder = null,
+        int? acceptableScore = null)
     {
-        var recipeName = requestedRecipeName;
-        var recipes = await GetRecipes(recipeName);
+        acceptableScore ??= config.AcceptableScoreThreshold;
 
-        var previousAttempts = new List<string?>();
-        var acceptableScore = config.AcceptableScoreThreshold;
-        var attempts = 0;
+        var recipes = await GetRecipes(requestedRecipeName, true, acceptableScore);
+
+        var previousAttempts = new List<string>();
+        var searchQuery = requestedRecipeName;
 
         while (recipes.Count == 0)
         {
-            _log.Warning("No recipes found for '{RecipeName}'", recipeName);
+            previousAttempts.Add(searchQuery);
 
-            if (++attempts > config.MaxNewRecipeNameAttempts)
+            var attempt = previousAttempts.Count + 1;
+            _log.Warning("[{RecipeName}] - No recipes found using '{SearchQuery}'", requestedRecipeName, searchQuery);
+
+            if (attempt > config.MaxNewRecipeNameAttempts)
             {
-                _log.Error($"Aborting recipe searching for '{{RecipeName}}', attempted {attempts} times",
-                    requestedRecipeName, attempts - 1);
-                throw new Exception($"No recipes found, attempted {attempts - 1} times");
+                _log.Error("[{RecipeName}] - Aborting recipe searching after '{attempt}' attempts",
+                    requestedRecipeName, attempt - 1);
+                throw new NoRecipeException(previousAttempts);
             }
 
             // Lower the bar of acceptable for every attempt
             acceptableScore -= 5;
 
             // With a lower bar, first attempt to check local sources before performing a new web scrape
-            recipes = await GetRecipes(recipeName, acceptableScore, false);
+            recipes = await GetRecipes(searchQuery, false, acceptableScore, requestedRecipeName);
             if (recipes.Count > 0)
             {
                 break;
             }
 
             // Request for new query to scrap with
-            recipeName = await GetReplacementRecipeName(requestedRecipeName, cookbookOrder, previousAttempts);
+            searchQuery = await GetSearchQueryForRecipe(requestedRecipeName, previousAttempts, cookbookOrder);
 
             _log.Information(
-                "Attempting using a replacement recipe search using '{NewRecipeName}' instead of '{RecipeName}' with an acceptable score of {AcceptableScore}.",
-                recipeName, requestedRecipeName, acceptableScore);
+                "[{RecipeName}] - Attempting an alternative search query: '{NewRecipeName}'. Acceptable score of {AcceptableScore}.",
+                requestedRecipeName, searchQuery, acceptableScore);
 
-            recipes = await GetRecipes(recipeName, acceptableScore);
-
-            if (recipes.Count == 0)
-            {
-                previousAttempts.Add(recipeName);
-            }
+            recipes = await GetRecipes(searchQuery, true, acceptableScore, requestedRecipeName);
         }
 
         return recipes;
     }
 
-    private async Task<string> GetReplacementRecipeName(string recipeName, CookbookOrder cookbookOrder,
-        List<string?> previousAttempts)
+    private async Task<string> GetSearchQueryForRecipe(string recipeName, List<string> previousAttempts,
+        CookbookOrder? cookbookOrder = null)
     {
-        var messages = new List<ChatMessage>
-        {
-            new SystemChatMessage(processOrderPrompt.SystemPrompt),
-            new UserChatMessage(processOrderPrompt.GetUserPrompt(cookbookOrder)),
-            new SystemChatMessage(cookbookOrder.RecipeList.ToString()),
-            new UserChatMessage(
-                $"""
-                 Thank you. The recipe name "{recipeName}" didn't yield any results, possibly due to its uniqueness or obscurity.
-                 Please provide an alternative name for a similar recipe. With each failed attempt, the search will broaden.
-                 Only respond with the new recipe name.
-                 """)
-        };
+        var primaryApproach = previousAttempts.Count < Math.Ceiling(config.MaxNewRecipeNameAttempts / 2.0);
 
-        foreach (var previousAttempt in previousAttempts)
+        var messages = new List<ChatMessage>();
+
+        // For the first half of the attempts, request for alternatives
+        if (primaryApproach)
         {
-            messages.Add(new SystemChatMessage(previousAttempt));
-            messages.Add(
-                $"Sorry, that search also returned no results. Please try another query, staying as true as possible to the original recipe '{recipeName}'.");
+            messages.Add(new SystemChatMessage(processOrderPrompt.SystemPrompt));
+
+            if (cookbookOrder != null)
+            {
+                messages.AddRange([
+                        new UserChatMessage(processOrderPrompt.GetUserPrompt(cookbookOrder)),
+                        new SystemChatMessage(string.Join(", ", cookbookOrder.RecipeList))
+                    ]
+                );
+            }
+
+            messages.Add(new UserChatMessage(
+                $"""
+                 Thank you. The recipe name "{recipeName}" didn't yield any search results, likely due to its uniqueness or obscurity.
+                 Please provide a wider search query to retrieve similar recipes. With each failed attempt, generalize the search query.
+                 Only respond with the new recipe name.
+                 """));
+
+            foreach (var previousAttempt in previousAttempts.Where(previousAttempt => previousAttempt != recipeName))
+            {
+                messages.AddRange([
+                    new SystemChatMessage(previousAttempt),
+                    new UserChatMessage(
+                        $"Sorry, that search also returned no matches. Suggest a more generalized query for similar recipes, staying as true as possible to the original recipe '{recipeName}'.")
+                ]);
+            }
+        }
+        else
+        {
+            // For the second half of attempts, aggressively generalize the search query
+            messages.AddRange([
+                new SystemChatMessage(
+                    """
+                    <SystemPrompt>
+                        <Context>Online Recipe Searching</Context>
+                        <Goal>Your task is to provide an ideal search query that aims to returns search results yielding recipes that forms the basis of the user's requested recipe.</Goal>
+                        <Input>A unique recipe name that does not return search results.</Input>
+                        <Output>Only respond with the new search query and nothing else.</Output>
+                        <Examples>
+                            <Example>
+                                <Input>Pan-Seared Partridge with Herb Infusion</Input>
+                                <Output>Grilled Partridge</Output>
+                            </Example>
+                            <Example>
+                                <Input>Herb-Crusted Venison with Seasonal Vegetables</Input>
+                                <Output>Venison</Output>
+                            </Example>
+                            <Example>
+                                <Input>Luigi’s Veggie Power-Up Pizza</Input>
+                                <Output>Vegetable Pizza</Output>
+                            </Example>
+                        </Examples>
+                        <Rules>
+                            <Rule>Omit Previous Attempts</Rule>
+                            <Rule>Do not include 'Recipe' as part of the search query</Rule>
+                        </Rules>
+                    </SystemPrompt>
+                    """
+                ),
+                new UserChatMessage(
+                    $"""
+                     Recipe: {recipeName}
+                     Previous Attempts: {string.Join(", ", previousAttempts)}
+                     """
+                )
+            ]);
         }
 
-        var result = await llmService.GetCompletion(messages);
+        var result = await llmService.GetCompletionContent(messages);
 
-        return result.ToString()!;
+        return result.Trim('"').Trim();
     }
 
-    public async Task<List<Recipe>> GetRecipes(string query, int? acceptableScore = null, bool scrape = true)
+    public async Task<List<Recipe>> GetRecipes(string query, bool scrape, int? acceptableScore = null,
+        string? requestedRecipeName = null)
     {
         acceptableScore ??= config.AcceptableScoreThreshold;
         var recipesNeeded = config.RecipesToReturnPerRetrieval;
@@ -123,7 +178,7 @@ public class RecipeService(
             _log.Information("Retrieved {count} cached recipes for query '{query}'.", recipes.Count, query);
         }
 
-        await RankUnrankedRecipesAsync(recipes, query, acceptableScore.Value);
+        await RankUnrankedRecipesAsync(recipes, requestedRecipeName ?? query, acceptableScore.Value);
 
         // Check if additional recipes should be web-scraped
         if (scrape && recipes.Count(r =>
@@ -139,7 +194,7 @@ public class RecipeService(
             recipes.AddRange(mapper.Map<List<Recipe>>(newRecipes));
 
             // Rank any new unranked recipes
-            await RankUnrankedRecipesAsync(recipes, query, acceptableScore.Value);
+            await RankUnrankedRecipesAsync(recipes, requestedRecipeName ?? query, acceptableScore.Value);
         }
 
         // Save recipes to the repository
@@ -150,6 +205,7 @@ public class RecipeService(
 
         // Return the top recipes
         return recipes
+            .Where(r => r.Relevancy.TryGetValue(query, out var value) && value.Score >= acceptableScore)
             .Take(config.RecipesToReturnPerRetrieval)
             .ToList();
     }
@@ -274,7 +330,7 @@ public class RecipeService(
 
         try
         {
-            var synthesizePrompt = synthesizeRecipePrompt.GetUserPrompt(recipes, order);
+            var synthesizePrompt = synthesizeRecipePrompt.GetUserPrompt(recipeName, recipes, order);
 
             await llmService.CreateMessage(synthesizingThreadId, synthesizePrompt);
 
@@ -432,4 +488,9 @@ public class RecipeService(
             toolOutput
         );
     }
+}
+
+public class NoRecipeException(List<string> previousAttempts) : Exception("No recipes found")
+{
+    public List<string> PreviousAttempts { get; } = previousAttempts;
 }

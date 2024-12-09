@@ -25,6 +25,7 @@ public class OrderService(
     ProcessOrderPrompt processOrderPrompt,
     PdfCompiler pdfCompiler,
     IEmailService emailService,
+    EmailConfig emailConfig,
     LlmConfig llmConfig
 )
 {
@@ -162,6 +163,21 @@ public class OrderService(
                 {
                     recipes = await recipeService.GetRecipes(recipeName, order);
                 }
+                catch (NoRecipeException e)
+                {
+                    await emailService.SendEmail(
+                        emailConfig.FromEmail,
+                        $"Cookbook Factory - No Recipe Found - {recipeName}",
+                        "no-recipe", 
+                        new Dictionary<string, object>
+                        {
+                            { "recipeName", recipeName },
+                            { "previousAttempts", e.PreviousAttempts }
+                        }
+                    );
+                    _log.Error("Cannot include in cookbook. No recipe found for {RecipeName}. Previous attempts: {PreviousAttempts}", recipeName, e.PreviousAttempts);
+                    return;
+                }
                 catch (Exception ex)
                 {
                     _log.Error(ex, "Recipe {RecipeName} aborted in error. Cannot include in cookbook.", recipeName);
@@ -178,6 +194,9 @@ public class OrderService(
 
                 // Add image to recipe
                 result.ImageUrls = GetImageUrls(result, recipes);
+                result.SourceRecipes = recipes
+                    .Where(r=> !(result.InspiredBy?.Count > 0) || result.InspiredBy.Contains(r.RecipeUrl!))
+                    .ToList();  
 
                 WriteRecipeToOrderDir(order.OrderId, recipeName, result);
                 completedRecipes.Add(result);
@@ -235,7 +254,7 @@ public class OrderService(
 
     public async Task CompilePdf(CookbookOrder order, bool waitForWrite = false)
     {
-        if (!(order.SynthesizedRecipes?.Count > 0))
+        if (!(order.SynthesizedRecipes.Count > 0))
         {
             throw new Exception("Cannot assemble pdf as this order contains no recipes");
         }
