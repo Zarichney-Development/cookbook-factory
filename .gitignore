@@ -6,7 +6,8 @@ obj
 .idea
 .env
 Data
-appsettings.json
+appsettings.Development.json
+!appsettings.json
 Scripts
 backup*
 test_results
