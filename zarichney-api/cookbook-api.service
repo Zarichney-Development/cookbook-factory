@@ -1,0 +1,27 @@
+[Unit]
+Description=Zarichney API Service
+After=network.target
+
+[Service]
+Type=simple
+User=ec2-user
+WorkingDirectory=/opt/cookbook-api
+ExecStart=/opt/cookbook-api/start-server.sh
+Restart=on-failure
+RestartSec=5s
+Environment=ASPNETCORE_ENVIRONMENT=Production
+Environment=APP_DATA_PATH=/var/lib/cookbook-api/data/
+
+# Adjusted resource limits for t3.small
+CPUQuota=90%
+MemoryHigh=1.5G
+MemoryMax=1.8G
+TasksMax=200
+LimitNPROC=200
+LimitNOFILE=8192
+
+# Run cleanup script as root on stop
+ExecStopPost=/bin/sh -c 'sudo /opt/cookbook-api/cleanup-playwright.sh'
+
+[Install]
+WantedBy=multi-user.target

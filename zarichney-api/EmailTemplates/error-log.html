@@ -1,0 +1,19 @@
+<h2>Transcription Service Error</h2>
+<h3>Error Details:</h3>
+<ul>
+    <li><strong>Timestamp:</strong> {{timestamp}}</li>
+    <li><strong>File Name:</strong> {{fileName}}</li>
+    <li><strong>Error Type:</strong> {{errorType}}</li>
+    <li><strong>Error Message:</strong> {{errorMessage}}</li>
+    <li><strong>Stage:</strong> {{stage}}</li>
+</ul>
+
+<h3>Stack Trace:</h3>
+<pre>{{stackTrace}}</pre>
+
+<h3>Additional Context:</h3>
+<ul>
+    {{#each additionalContext}}
+    <li><strong>{{@key}}:</strong> {{this}}</li>
+    {{/each}}
+</ul>
