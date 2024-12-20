@@ -33,7 +33,7 @@ jobs:
           dotnet-version: '8.0.x'
 
       - name: Publish
-        run: dotnet publish -c Release -o ./publish
+        run: dotnet publish -c Release -o ../publish
 
       - name: Deploy to EC2
         env:
