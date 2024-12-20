@@ -31,9 +31,14 @@ jobs:
         uses: actions/setup-dotnet@v3
         with:
           dotnet-version: '8.0.x'
+          
+      - name: Debug directory structure
+        run: |
+          pwd
+          ls -R
 
       - name: Publish
-        run: dotnet publish -c Release -o ../publish
+        run: dotnet publish zarichney-api/zarichney-api.csproj -c Release -o ./publish
 
       - name: Deploy to EC2
         env:
